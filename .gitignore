@@ -1,6 +1,9 @@
 # Simulation outputs can be regenerated and may become large.
 /outputs/
 
+# Background-run logs and PID files.
+/logs/
+
 # External solver checkout. Clone or unpack MHDFlows here locally.
 /MHDFlows_dev-main/
 

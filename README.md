@@ -74,6 +74,40 @@ julia run_simulation.jl [--config config.local.toml] [nx] [end_time] [forcing_po
 
 Set `fixed_dt` to `0` to use the solver's adaptive CFL timestep.
 
+The normal runner is foreground: it prints progress in the current terminal and
+returns only when the simulation finishes. For long runs, start it in the
+background and write logs under `logs/`.
+
+On Windows PowerShell:
+
+```powershell
+.\run_background.ps1 -Config .\config.local.toml
+```
+
+For a quick background smoke test with positional overrides:
+
+```powershell
+.\run_background.ps1 -Config .\config.local.toml -- 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234
+```
+
+On Linux/macOS or a remote shell:
+
+```bash
+./run_background.sh --config config.local.toml
+```
+
+Both wrappers print a process ID and log file path. The `logs/` directory is
+ignored by Git.
+
+Device selection comes from `device` in `config.local.toml`:
+
+```toml
+device = "auto" # auto, cpu, or gpu
+```
+
+`gpu` means the `GPU()` device used by `MHDFlows`/`FourierFlows` with CUDA.jl.
+`auto` uses GPU only when CUDA is functional, otherwise CPU.
+
 The default model is a periodic `128^3` compressible MHD box with:
 
 | Parameter | Default |
