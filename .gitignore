@@ -7,6 +7,9 @@
 # Local task notes used for Codex communication.
 task*.md
 
+# Machine-specific run settings.
+config.local.toml
+
 # Julia-generated local files.
 *.ji
 *.cov

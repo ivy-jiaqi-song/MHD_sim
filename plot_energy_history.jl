@@ -1,21 +1,25 @@
-if (abspath(PROGRAM_FILE) == @__FILE__) && !isempty(ARGS) && ARGS[1] in ["-h", "--help"]
+is_plot_entrypoint = abspath(PROGRAM_FILE) == @__FILE__
+
+if is_plot_entrypoint && !isempty(ARGS) && ARGS[1] in ["-h", "--help"]
     println("Usage:")
-    println("  julia plot_energy_history.jl [case_dir]")
+    println("  julia plot_energy_history.jl [--config config.local.toml] [case_dir]")
     println()
-    println("When case_dir is omitted, the newest case under outputs/ is used.")
+    println("When case_dir is omitted, the newest case under the configured output_root is used.")
     exit(0)
 end
 
 import Pkg
 
-function mhdflows_project_path()
-    path = get(ENV, "MHDFLOWS_PROJECT", joinpath(@__DIR__, "MHDFlows_dev-main"))
-    isdir(path) || error("MHDFlows project not found at $(path). Clone or unpack MHDFlows there, or set MHDFLOWS_PROJECT to a local MHDFlows checkout.")
-    isfile(joinpath(path, "Project.toml")) || error("MHDFlows project is missing Project.toml: $(path)")
-    return path
+if !isdefined(Main, :resolve_repo_path)
+    include(joinpath(@__DIR__, "runner_config.jl"))
 end
 
-Pkg.activate(mhdflows_project_path())
+if is_plot_entrypoint
+    config_path_arg, plot_positionals = split_config_args(ARGS)
+    length(plot_positionals) <= 1 || error("Expected zero or one case directory. Run with --help for usage.")
+    config_path, settings = load_config(config_path_arg)
+    Pkg.activate(mhdflows_project_path(settings))
+end
 
 using DelimitedFiles
 using Printf
@@ -28,11 +32,10 @@ end
 
 import PyPlot
 
-function latest_case_root()
-    output_dir = joinpath(@__DIR__, "outputs")
-    isdir(output_dir) || error("No outputs directory exists yet: $(output_dir)")
-    cases = filter(isdir, readdir(output_dir; join = true))
-    isempty(cases) && error("No simulation cases found in $(output_dir)")
+function latest_case_root(output_root::AbstractString)
+    isdir(output_root) || error("No outputs directory exists yet: $(output_root)")
+    cases = filter(isdir, readdir(output_root; join = true))
+    isempty(cases) && error("No simulation cases found in $(output_root)")
     sort!(cases; by = path -> stat(path).mtime)
     return cases[end]
 end
@@ -120,8 +123,9 @@ function plot_energy_history(case_dir::AbstractString)
     return output_path
 end
 
-if abspath(PROGRAM_FILE) == @__FILE__
-    length(ARGS) <= 1 || error("Expected zero or one positional argument. Run with --help for usage.")
-    case_dir = isempty(ARGS) ? latest_case_root() : abspath(ARGS[1])
+if is_plot_entrypoint
+    output_root = configured_output_root(settings)
+    case_dir = isempty(plot_positionals) ? latest_case_root(output_root) : resolve_repo_path(plot_positionals[1])
+    println("Config file: $(config_path)")
     println("Energy history figure: $(plot_energy_history(case_dir))")
 end

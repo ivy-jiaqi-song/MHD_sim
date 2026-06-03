@@ -7,6 +7,9 @@ using Statistics
 using TOML
 
 Base.@kwdef struct SimulationConfig
+    output_root::String = joinpath(@__DIR__, "outputs")
+    device::String = "auto"
+    apply_cpu_compatibility_shim::Bool = true
     name::String = "compressible_mhd_baseline"
     description::String = "Compressible MHD baseline with snapshots and energy-history diagnostics"
     nx::Int = 128
@@ -28,7 +31,6 @@ Base.@kwdef struct SimulationConfig
     late_window_fraction::Float64 = 0.25
     stability_rel_band::Float64 = 0.12
     stability_abs_change::Float64 = 0.06
-    prefer_gpu::Bool = true
     seed::Int = 1234
     tag_suffix::String = ""
 end
@@ -55,9 +57,6 @@ EnergyHistory(sample_every::Int) = EnergyHistory(
     Float64[],
 )
 
-workspace_root() = @__DIR__
-outputs_root() = joinpath(workspace_root(), "outputs")
-
 function float_tag(x::Real)
     tag = @sprintf("%.4g", float(x))
     return replace(tag, "-" => "m", "." => "p")
@@ -68,7 +67,7 @@ function case_tag(cfg::SimulationConfig)
     return isempty(cfg.tag_suffix) ? base : "$(base)_$(cfg.tag_suffix)"
 end
 
-case_root(cfg::SimulationConfig) = joinpath(outputs_root(), case_tag(cfg))
+case_root(cfg::SimulationConfig) = joinpath(cfg.output_root, case_tag(cfg))
 analysis_root(cfg::SimulationConfig) = joinpath(case_root(cfg), "analysis")
 figure_root(cfg::SimulationConfig) = joinpath(case_root(cfg), "figures")
 snapshot_root(cfg::SimulationConfig) = joinpath(case_root(cfg), "snapshots")
@@ -80,11 +79,76 @@ function ensure_case_dirs!(cfg::SimulationConfig)
     return nothing
 end
 
+function install_cpu_compatibility_shim!()
+    solver = MHDFlows.MHDSolver_compressible
+    Core.eval(solver, quote
+        using FourierFlows: CPU
+
+        synchronize_if_gpu(grid) = grid.device == CPU() ? nothing : CUDA.synchronize()
+
+        function MHDcalcN_advection!(N, sol, t, clock, vars, params, grid)
+            @timeit_debug params.debugTimer "FFT Update" begin
+                ldiv!(vars.ρ, grid.rfftplan, deepcopy(@view sol[:, :, :, params.ρ_ind]))
+                ldiv!(vars.ux, grid.rfftplan, deepcopy(@view sol[:, :, :, params.ux_ind]))
+                ldiv!(vars.uy, grid.rfftplan, deepcopy(@view sol[:, :, :, params.uy_ind]))
+                ldiv!(vars.uz, grid.rfftplan, deepcopy(@view sol[:, :, :, params.uz_ind]))
+                ldiv!(vars.bx, grid.rfftplan, deepcopy(@view sol[:, :, :, params.bx_ind]))
+                ldiv!(vars.by, grid.rfftplan, deepcopy(@view sol[:, :, :, params.by_ind]))
+                ldiv!(vars.bz, grid.rfftplan, deepcopy(@view sol[:, :, :, params.bz_ind]))
+
+                @. vars.ux /= vars.ρ
+                @. vars.uy /= vars.ρ
+                @. vars.uz /= vars.ρ
+
+                mul!(vars.uxh, grid.rfftplan, vars.ux)
+                mul!(vars.uyh, grid.rfftplan, vars.uy)
+                mul!(vars.uzh, grid.rfftplan, vars.uz)
+                synchronize_if_gpu(grid)
+            end
+
+            @timeit_debug params.debugTimer "ρ Update" begin
+                ρUpdate!(N, sol, t, clock, vars, params, grid)
+                synchronize_if_gpu(grid)
+            end
+
+            @timeit_debug params.debugTimer "UᵢUpdate" begin
+                UᵢUpdate!(N, sol, t, clock, vars, params, grid; direction = "x")
+                UᵢUpdate!(N, sol, t, clock, vars, params, grid; direction = "y")
+                UᵢUpdate!(N, sol, t, clock, vars, params, grid; direction = "z")
+                synchronize_if_gpu(grid)
+            end
+
+            @timeit_debug params.debugTimer "BᵢUpdate" begin
+                BᵢUpdate!(N, sol, t, clock, vars, params, grid; direction = "x")
+                BᵢUpdate!(N, sol, t, clock, vars, params, grid; direction = "y")
+                BᵢUpdate!(N, sol, t, clock, vars, params, grid; direction = "z")
+                synchronize_if_gpu(grid)
+            end
+            return nothing
+        end
+    end)
+    return nothing
+end
+
+function maybe_install_cpu_compatibility_shim!(cfg::SimulationConfig)
+    cfg.apply_cpu_compatibility_shim || return nothing
+    install_cpu_compatibility_shim!()
+    println("Installed runtime CPU compatibility shim for MHDFlows compressible MHD solver")
+    return nothing
+end
+
 function choose_device(cfg::SimulationConfig)
-    if cfg.prefer_gpu && CUDA.functional()
+    mode = lowercase(strip(cfg.device))
+    if mode == "cpu"
+        return CPU(), "CPU"
+    elseif mode == "gpu"
+        CUDA.functional() || error("device = \"gpu\" was requested, but CUDA is not functional on this machine")
         return GPU(), "GPU"
+    elseif mode == "auto"
+        CUDA.functional() && return GPU(), "GPU"
+        return CPU(), "CPU"
     end
-    return CPU(), "CPU"
+    error("device must be \"auto\", \"cpu\", or \"gpu\"; got \"$(cfg.device)\"")
 end
 
 function seed_problem!(cfg::SimulationConfig, device_label::String)
@@ -99,6 +163,7 @@ function seed_problem!(cfg::SimulationConfig, device_label::String)
 end
 
 function build_problem(cfg::SimulationConfig; usr_func = [])
+    maybe_install_cpu_compatibility_shim!(cfg)
     dev, device_label = choose_device(cfg)
     seed_problem!(cfg, device_label)
 
@@ -255,6 +320,8 @@ function write_case_metadata(path::String, cfg::SimulationConfig, device_label::
         "name" => cfg.name,
         "description" => cfg.description,
         "device" => device_label,
+        "device_request" => cfg.device,
+        "output_root" => cfg.output_root,
         "nx" => cfg.nx,
         "box_size" => cfg.box_size,
         "float_type" => string(cfg.float_type),
@@ -274,6 +341,7 @@ function write_case_metadata(path::String, cfg::SimulationConfig, device_label::
         "late_window_fraction" => cfg.late_window_fraction,
         "stability_rel_band" => cfg.stability_rel_band,
         "stability_abs_change" => cfg.stability_abs_change,
+        "apply_cpu_compatibility_shim" => cfg.apply_cpu_compatibility_shim,
         "seed" => cfg.seed,
     )
     open(path, "w") do io
@@ -282,18 +350,84 @@ function write_case_metadata(path::String, cfg::SimulationConfig, device_label::
     return path
 end
 
-function config_from_args(args::Vector{String})
-    length(args) <= 9 || error("Expected at most 9 positional arguments. Run with --help for usage.")
+as_string(value) = String(value)
+as_int(value) = value isa Integer ? Int(value) : parse(Int, String(value))
+as_float(value) = value isa Real ? Float64(value) : parse(Float64, String(value))
+as_bool(value) = value isa Bool ? value : parse(Bool, lowercase(String(value)))
+
+function as_datatype(value)
+    text = String(value)
+    text == "Float32" && return Float32
+    text == "Float64" && return Float64
+    error("float_type must be Float32 or Float64; got $(text)")
+end
+
+function as_tuple3(value)
+    length(value) == 3 || error("mean_field must have exactly three values")
+    values = Float64.(value)
+    return (values[1], values[2], values[3])
+end
+
+function config_from_sources(settings, positionals::Vector{String})
+    length(positionals) <= 9 || error("Expected at most 9 positional overrides. Run with --help for usage.")
     defaults = SimulationConfig()
+
+    cfg = SimulationConfig(;
+        output_root = configured_output_root(settings),
+        device = as_string(get_config(settings, "device", defaults.device)),
+        apply_cpu_compatibility_shim = as_bool(get_config(settings, "apply_cpu_compatibility_shim", defaults.apply_cpu_compatibility_shim)),
+        name = as_string(get_config(settings, "name", defaults.name)),
+        description = as_string(get_config(settings, "description", defaults.description)),
+        nx = as_int(get_config(settings, "nx", defaults.nx)),
+        box_size = as_float(get_config(settings, "box_size", defaults.box_size)),
+        float_type = as_datatype(get_config(settings, "float_type", string(defaults.float_type))),
+        sound_speed = as_float(get_config(settings, "sound_speed", defaults.sound_speed)),
+        viscosity = as_float(get_config(settings, "viscosity", defaults.viscosity)),
+        resistivity = as_float(get_config(settings, "resistivity", defaults.resistivity)),
+        mean_field = as_tuple3(get_config(settings, "mean_field", collect(defaults.mean_field))),
+        forcing_wavenumber = as_float(get_config(settings, "forcing_wavenumber", defaults.forcing_wavenumber)),
+        forcing_power = as_float(get_config(settings, "forcing_power", defaults.forcing_power)),
+        forcing_width = as_float(get_config(settings, "forcing_width", defaults.forcing_width)),
+        initial_velocity_power = as_float(get_config(settings, "initial_velocity_power", defaults.initial_velocity_power)),
+        fixed_dt = as_float(get_config(settings, "fixed_dt", defaults.fixed_dt)),
+        end_time = as_float(get_config(settings, "end_time", defaults.end_time)),
+        max_steps = as_int(get_config(settings, "max_steps", defaults.max_steps)),
+        energy_sample_every = as_int(get_config(settings, "energy_sample_every", defaults.energy_sample_every)),
+        snapshot_dt = as_float(get_config(settings, "snapshot_dt", defaults.snapshot_dt)),
+        late_window_fraction = as_float(get_config(settings, "late_window_fraction", defaults.late_window_fraction)),
+        stability_rel_band = as_float(get_config(settings, "stability_rel_band", defaults.stability_rel_band)),
+        stability_abs_change = as_float(get_config(settings, "stability_abs_change", defaults.stability_abs_change)),
+        seed = as_int(get_config(settings, "seed", defaults.seed)),
+        tag_suffix = as_string(get_config(settings, "tag_suffix", defaults.tag_suffix)),
+    )
+
+    isempty(positionals) && return cfg
     return SimulationConfig(;
-        nx = length(args) >= 1 ? parse(Int, args[1]) : defaults.nx,
-        end_time = length(args) >= 2 ? parse(Float64, args[2]) : defaults.end_time,
-        forcing_power = length(args) >= 3 ? parse(Float64, args[3]) : defaults.forcing_power,
-        viscosity = length(args) >= 4 ? parse(Float64, args[4]) : defaults.viscosity,
-        resistivity = length(args) >= 5 ? parse(Float64, args[5]) : defaults.resistivity,
-        tag_suffix = length(args) >= 6 ? args[6] : defaults.tag_suffix,
-        fixed_dt = length(args) >= 7 ? parse(Float64, args[7]) : defaults.fixed_dt,
-        snapshot_dt = length(args) >= 8 ? parse(Float64, args[8]) : defaults.snapshot_dt,
-        seed = length(args) >= 9 ? parse(Int, args[9]) : defaults.seed,
+        output_root = cfg.output_root,
+        device = cfg.device,
+        apply_cpu_compatibility_shim = cfg.apply_cpu_compatibility_shim,
+        name = cfg.name,
+        description = cfg.description,
+        nx = length(positionals) >= 1 ? parse(Int, positionals[1]) : cfg.nx,
+        box_size = cfg.box_size,
+        float_type = cfg.float_type,
+        sound_speed = cfg.sound_speed,
+        viscosity = length(positionals) >= 4 ? parse(Float64, positionals[4]) : cfg.viscosity,
+        resistivity = length(positionals) >= 5 ? parse(Float64, positionals[5]) : cfg.resistivity,
+        mean_field = cfg.mean_field,
+        forcing_wavenumber = cfg.forcing_wavenumber,
+        forcing_power = length(positionals) >= 3 ? parse(Float64, positionals[3]) : cfg.forcing_power,
+        forcing_width = cfg.forcing_width,
+        initial_velocity_power = cfg.initial_velocity_power,
+        fixed_dt = length(positionals) >= 7 ? parse(Float64, positionals[7]) : cfg.fixed_dt,
+        end_time = length(positionals) >= 2 ? parse(Float64, positionals[2]) : cfg.end_time,
+        max_steps = cfg.max_steps,
+        energy_sample_every = cfg.energy_sample_every,
+        snapshot_dt = length(positionals) >= 8 ? parse(Float64, positionals[8]) : cfg.snapshot_dt,
+        late_window_fraction = cfg.late_window_fraction,
+        stability_rel_band = cfg.stability_rel_band,
+        stability_abs_change = cfg.stability_abs_change,
+        seed = length(positionals) >= 9 ? parse(Int, positionals[9]) : cfg.seed,
+        tag_suffix = length(positionals) >= 6 ? positionals[6] : cfg.tag_suffix,
     )
 end

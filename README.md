@@ -17,8 +17,8 @@ MHDFlows_dev-main/
 ```
 
 That folder is intentionally ignored by Git because it is external code. If you
-keep the package elsewhere, set `MHDFLOWS_PROJECT` to that local checkout before
-running the scripts.
+keep the package elsewhere, set `mhdflows_project` in `config.local.toml`, or
+set `MHDFLOWS_PROJECT` before running the scripts.
 
 Instantiate the solver environment once:
 
@@ -26,18 +26,37 @@ Instantiate the solver environment once:
 julia --project=.\MHDFlows_dev-main -e 'using Pkg; Pkg.instantiate()'
 ```
 
-For CPU-only machines, the upstream compressible MHD solver may call
-`CUDA.@sync` even when the selected device is `CPU`. This repository includes a
-small optional patch:
-
-```powershell
-cd .\MHDFlows_dev-main
-git apply ..\patches\mhdflows_cpu_fallback.patch
-cd ..
-```
-
 The solver supports a single CPU or a single CUDA-capable GPU. The launcher
 selects a functional GPU when available and falls back to the CPU otherwise.
+For CPU-only machines, the runner installs a small runtime compatibility shim
+in memory. It does not edit the external `MHDFlows` checkout on disk.
+
+## Configure
+
+Copy the tracked example config to your ignored local config:
+
+```powershell
+Copy-Item .\config.example.toml .\config.local.toml
+```
+
+Edit `config.local.toml` for your machine and run settings:
+
+```toml
+mhdflows_project = "MHDFlows_dev-main"
+output_root = "outputs"
+device = "auto" # auto, cpu, or gpu
+
+nx = 128
+end_time = 60.0
+forcing_power = 8000.0
+viscosity = 0.01
+resistivity = 0.01
+snapshot_dt = 5.0
+seed = 1234
+```
+
+`config.local.toml` is ignored by Git, so local machine paths and experiment
+notes stay out of GitHub.
 
 ## Run
 
@@ -50,7 +69,7 @@ julia .\run_simulation.jl
 Optional positional overrides preserve the order used by the original script:
 
 ```text
-julia run_simulation.jl [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]
+julia run_simulation.jl [--config config.local.toml] [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]
 ```
 
 Set `fixed_dt` to `0` to use the solver's adaptive CFL timestep.
@@ -71,7 +90,8 @@ The default model is a periodic `128^3` compressible MHD box with:
 
 ## Outputs
 
-Each case is written under `outputs/<case-tag>/`:
+Each case is written under the configured `output_root`, normally
+`outputs/<case-tag>/`:
 
 ```text
 analysis/case_metadata.toml
@@ -103,5 +123,5 @@ julia .\plot_energy_history.jl .\outputs\<case-tag>
 
 Generated outputs are ignored by Git because HDF5 snapshots can become large.
 `MHDFlows_dev-main/` is also ignored because it is an external package checkout,
-not original code from this repository. The local patch under `patches/`
-documents the CPU fallback change used during smoke testing.
+not original code from this repository. `config.local.toml` and `task*.md` are
+ignored because they are machine-local working notes/settings.
