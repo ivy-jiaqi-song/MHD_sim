@@ -1,24 +1,24 @@
 if !isempty(ARGS) && ARGS[1] in ["-h", "--help"]
     println("Usage:")
-    println("  julia run_simulation.jl [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]")
+    println("  julia run_simulation.jl [--config config.local.toml]")
+    println("  julia run_simulation.jl [--config config.local.toml] [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]")
     println()
+    println("Default config order: config.local.toml when present, otherwise config.example.toml.")
     println("Set fixed_dt = 0 to use the solver's adaptive CFL timestep.")
     exit(0)
 end
 
 import Pkg
 
-function mhdflows_project_path()
-    path = get(ENV, "MHDFLOWS_PROJECT", joinpath(@__DIR__, "MHDFlows_dev-main"))
-    isdir(path) || error("MHDFlows project not found at $(path). Clone or unpack MHDFlows there, or set MHDFLOWS_PROJECT to a local MHDFlows checkout.")
-    isfile(joinpath(path, "Project.toml")) || error("MHDFlows project is missing Project.toml: $(path)")
-    return path
-end
+include(joinpath(@__DIR__, "runner_config.jl"))
 
-Pkg.activate(mhdflows_project_path())
+config_path_arg, positionals = split_config_args(ARGS)
+config_path, settings = load_config(config_path_arg)
+
+Pkg.activate(mhdflows_project_path(settings))
 include(joinpath(@__DIR__, "simulation_support.jl"))
 
-cfg = config_from_args(ARGS)
+cfg = config_from_sources(settings, positionals)
 cfg.snapshot_dt > 0 || error("snapshot_dt must be positive")
 cfg.energy_sample_every > 0 || error("energy_sample_every must be positive")
 
@@ -28,6 +28,7 @@ csv_path = joinpath(analysis_root(cfg), "energy_history.csv")
 metadata_path = joinpath(analysis_root(cfg), "case_metadata.toml")
 
 println("Running compressible MHD simulation")
+println("Config file: $(config_path)")
 println("Case directory: $(case_dir)")
 
 history = EnergyHistory(cfg.energy_sample_every)

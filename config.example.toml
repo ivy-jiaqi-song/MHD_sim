@@ -1,0 +1,46 @@
+# Copy this file to config.local.toml for machine-specific settings.
+# config.local.toml is ignored by Git.
+
+# External package checkout. Relative paths are resolved from this repository.
+mhdflows_project = "MHDFlows_dev-main"
+
+# Simulation outputs. Relative paths are resolved from this repository.
+output_root = "outputs"
+
+# Runtime device: "auto", "cpu", or "gpu".
+device = "auto"
+
+# Keep true for CPU-only machines using the current upstream MHDFlows checkout.
+# This modifies the problematic CPU method in memory only; it does not edit the
+# external MHDFlows package on disk.
+apply_cpu_compatibility_shim = true
+
+name = "compressible_mhd_baseline"
+description = "Compressible MHD baseline with snapshots and energy-history diagnostics"
+tag_suffix = ""
+
+nx = 128
+box_size = 6.283185307179586
+float_type = "Float32"
+sound_speed = 1.4142135623730951
+viscosity = 0.01
+resistivity = 0.01
+mean_field = [1.0, 0.0, 0.0]
+
+forcing_wavenumber = 2.0
+forcing_power = 8000.0
+forcing_width = 1.0
+initial_velocity_power = 0.0005
+
+# Set fixed_dt = 0.0 to use the solver's adaptive CFL timestep.
+fixed_dt = 0.0
+end_time = 60.0
+max_steps = 80000
+snapshot_dt = 5.0
+
+energy_sample_every = 10
+late_window_fraction = 0.25
+stability_rel_band = 0.12
+stability_abs_change = 0.06
+
+seed = 1234
