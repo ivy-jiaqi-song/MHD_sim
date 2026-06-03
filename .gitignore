@@ -1,0 +1,16 @@
+# Simulation outputs can be regenerated and may become large.
+/outputs/
+
+# External solver checkout. Clone or unpack MHDFlows here locally.
+/MHDFlows_dev-main/
+
+# Julia-generated local files.
+*.ji
+*.cov
+*.mem
+
+# Editor and operating-system files.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

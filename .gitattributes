@@ -1,0 +1,6 @@
+* text=auto
+*.jl text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.png binary
+*.gif binary
