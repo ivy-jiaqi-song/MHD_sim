@@ -37,6 +37,7 @@ end
 
 mutable struct EnergyHistory
     sample_every::Int
+    sound_speed::Float64
     times::Vector{Float64}
     rho_mean::Vector{Float64}
     kinetic::Vector{Float64}
@@ -44,10 +45,36 @@ mutable struct EnergyHistory
     magnetic_fluct::Vector{Float64}
     total_resolved::Vector{Float64}
     fluct_total::Vector{Float64}
+    velocity_rms::Vector{Float64}
+    velocity_fluct_rms::Vector{Float64}
+    sonic_mach::Vector{Float64}
+    sonic_mach_total::Vector{Float64}
+    magnetic_mean_strength::Vector{Float64}
+    magnetic_rms_total::Vector{Float64}
+    magnetic_rms_fluct::Vector{Float64}
+    alfven_speed_mean::Vector{Float64}
+    alfven_speed_total::Vector{Float64}
+    alfven_speed_fluct::Vector{Float64}
+    alfven_mach_mean::Vector{Float64}
+    alfven_mach_total::Vector{Float64}
+    alfven_mach_fluct::Vector{Float64}
 end
 
-EnergyHistory(sample_every::Int) = EnergyHistory(
+EnergyHistory(sample_every::Int, sound_speed::Real = SimulationConfig().sound_speed) = EnergyHistory(
     sample_every,
+    Float64(sound_speed),
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
     Float64[],
     Float64[],
     Float64[],
@@ -233,6 +260,65 @@ function sync_real_state!(prob)
     return nothing
 end
 
+safe_ratio(numerator::Real, denominator::Real) = isfinite(Float64(denominator)) && Float64(denominator) > 0 ? Float64(numerator) / Float64(denominator) : NaN
+
+function mhd_field_diagnostics(rho, ux, uy, uz, bx, by, bz, sound_speed::Real)
+    rho_mean = Float64(mean(rho))
+    sqrt_rho_mean = rho_mean > 0 ? sqrt(rho_mean) : NaN
+
+    u2 = ux .^ 2 .+ uy .^ 2 .+ uz .^ 2
+    kinetic_density = Float64(mean(rho .* u2))
+    velocity_rms = rho_mean > 0 ? sqrt(max(0.0, kinetic_density / rho_mean)) : NaN
+
+    ux_mean = safe_ratio(mean(rho .* ux), rho_mean)
+    uy_mean = safe_ratio(mean(rho .* uy), rho_mean)
+    uz_mean = safe_ratio(mean(rho .* uz), rho_mean)
+    du2 = (ux .- ux_mean) .^ 2 .+ (uy .- uy_mean) .^ 2 .+ (uz .- uz_mean) .^ 2
+    velocity_fluct_density = Float64(mean(rho .* du2))
+    velocity_fluct_rms = rho_mean > 0 ? sqrt(max(0.0, velocity_fluct_density / rho_mean)) : NaN
+
+    bx_mean = Float64(mean(bx))
+    by_mean = Float64(mean(by))
+    bz_mean = Float64(mean(bz))
+    b2 = bx .^ 2 .+ by .^ 2 .+ bz .^ 2
+    db2 = (bx .- bx_mean) .^ 2 .+ (by .- by_mean) .^ 2 .+ (bz .- bz_mean) .^ 2
+    magnetic_total_density = Float64(mean(b2))
+    magnetic_fluct_density = Float64(mean(db2))
+
+    kinetic = 0.5 * kinetic_density
+    magnetic_total = 0.5 * magnetic_total_density
+    magnetic_fluct = 0.5 * magnetic_fluct_density
+    magnetic_mean_strength = sqrt(max(0.0, bx_mean ^ 2 + by_mean ^ 2 + bz_mean ^ 2))
+    magnetic_rms_total = sqrt(max(0.0, magnetic_total_density))
+    magnetic_rms_fluct = sqrt(max(0.0, magnetic_fluct_density))
+
+    alfven_speed_mean = safe_ratio(magnetic_mean_strength, sqrt_rho_mean)
+    alfven_speed_total = safe_ratio(magnetic_rms_total, sqrt_rho_mean)
+    alfven_speed_fluct = safe_ratio(magnetic_rms_fluct, sqrt_rho_mean)
+
+    return (
+        rho_mean = rho_mean,
+        kinetic = kinetic,
+        magnetic_total = magnetic_total,
+        magnetic_fluct = magnetic_fluct,
+        total_resolved = kinetic + magnetic_total,
+        fluct_total = kinetic + magnetic_fluct,
+        velocity_rms = velocity_rms,
+        velocity_fluct_rms = velocity_fluct_rms,
+        sonic_mach = safe_ratio(velocity_fluct_rms, sound_speed),
+        sonic_mach_total = safe_ratio(velocity_rms, sound_speed),
+        magnetic_mean_strength = magnetic_mean_strength,
+        magnetic_rms_total = magnetic_rms_total,
+        magnetic_rms_fluct = magnetic_rms_fluct,
+        alfven_speed_mean = alfven_speed_mean,
+        alfven_speed_total = alfven_speed_total,
+        alfven_speed_fluct = alfven_speed_fluct,
+        alfven_mach_mean = safe_ratio(velocity_fluct_rms, alfven_speed_mean),
+        alfven_mach_total = safe_ratio(velocity_fluct_rms, alfven_speed_total),
+        alfven_mach_fluct = safe_ratio(velocity_fluct_rms, alfven_speed_fluct),
+    )
+end
+
 function sample_energy!(history::EnergyHistory, prob; force::Bool = false)
     if !force && prob.clock.step % history.sample_every != 0
         return false
@@ -253,30 +339,37 @@ function sample_energy!(history::EnergyHistory, prob; force::Bool = false)
     by = Array(prob.vars.by)
     bz = Array(prob.vars.bz)
 
-    kinetic = 0.5 * mean(rho .* (ux .^ 2 .+ uy .^ 2 .+ uz .^ 2))
-    magnetic_total = 0.5 * mean(bx .^ 2 .+ by .^ 2 .+ bz .^ 2)
-    magnetic_fluct = 0.5 * mean(
-        (bx .- mean(bx)) .^ 2 .+
-        (by .- mean(by)) .^ 2 .+
-        (bz .- mean(bz)) .^ 2
-    )
+    diagnostics = mhd_field_diagnostics(rho, ux, uy, uz, bx, by, bz, history.sound_speed)
 
     push!(history.times, current_time)
-    push!(history.rho_mean, Float64(mean(rho)))
-    push!(history.kinetic, Float64(kinetic))
-    push!(history.magnetic_total, Float64(magnetic_total))
-    push!(history.magnetic_fluct, Float64(magnetic_fluct))
-    push!(history.total_resolved, Float64(kinetic + magnetic_total))
-    push!(history.fluct_total, Float64(kinetic + magnetic_fluct))
+    push!(history.rho_mean, diagnostics.rho_mean)
+    push!(history.kinetic, diagnostics.kinetic)
+    push!(history.magnetic_total, diagnostics.magnetic_total)
+    push!(history.magnetic_fluct, diagnostics.magnetic_fluct)
+    push!(history.total_resolved, diagnostics.total_resolved)
+    push!(history.fluct_total, diagnostics.fluct_total)
+    push!(history.velocity_rms, diagnostics.velocity_rms)
+    push!(history.velocity_fluct_rms, diagnostics.velocity_fluct_rms)
+    push!(history.sonic_mach, diagnostics.sonic_mach)
+    push!(history.sonic_mach_total, diagnostics.sonic_mach_total)
+    push!(history.magnetic_mean_strength, diagnostics.magnetic_mean_strength)
+    push!(history.magnetic_rms_total, diagnostics.magnetic_rms_total)
+    push!(history.magnetic_rms_fluct, diagnostics.magnetic_rms_fluct)
+    push!(history.alfven_speed_mean, diagnostics.alfven_speed_mean)
+    push!(history.alfven_speed_total, diagnostics.alfven_speed_total)
+    push!(history.alfven_speed_fluct, diagnostics.alfven_speed_fluct)
+    push!(history.alfven_mach_mean, diagnostics.alfven_mach_mean)
+    push!(history.alfven_mach_total, diagnostics.alfven_mach_total)
+    push!(history.alfven_mach_fluct, diagnostics.alfven_mach_fluct)
     return true
 end
 
 function write_energy_csv(path::String, history::EnergyHistory)
     open(path, "w") do io
-        println(io, "time,rho_mean,kinetic,magnetic_total,magnetic_fluct,total_resolved,fluct_total")
+        println(io, "time,rho_mean,kinetic,magnetic_total,magnetic_fluct,total_resolved,fluct_total,velocity_rms,velocity_fluct_rms,sonic_mach,sonic_mach_total,magnetic_mean_strength,magnetic_rms_total,magnetic_rms_fluct,alfven_speed_mean,alfven_speed_total,alfven_speed_fluct,alfven_mach_mean,alfven_mach_total,alfven_mach_fluct")
         for i in eachindex(history.times)
             println(io,
-                "$(history.times[i]),$(history.rho_mean[i]),$(history.kinetic[i]),$(history.magnetic_total[i]),$(history.magnetic_fluct[i]),$(history.total_resolved[i]),$(history.fluct_total[i])")
+                "$(history.times[i]),$(history.rho_mean[i]),$(history.kinetic[i]),$(history.magnetic_total[i]),$(history.magnetic_fluct[i]),$(history.total_resolved[i]),$(history.fluct_total[i]),$(history.velocity_rms[i]),$(history.velocity_fluct_rms[i]),$(history.sonic_mach[i]),$(history.sonic_mach_total[i]),$(history.magnetic_mean_strength[i]),$(history.magnetic_rms_total[i]),$(history.magnetic_rms_fluct[i]),$(history.alfven_speed_mean[i]),$(history.alfven_speed_total[i]),$(history.alfven_speed_fluct[i]),$(history.alfven_mach_mean[i]),$(history.alfven_mach_total[i]),$(history.alfven_mach_fluct[i])")
         end
     end
     return path
