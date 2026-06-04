@@ -82,6 +82,7 @@ EnergyHistory(sample_every::Int, sound_speed::Real = SimulationConfig().sound_sp
     Float64[],
     Float64[],
     Float64[],
+    Float64[],
 )
 
 function float_tag(x::Real)
