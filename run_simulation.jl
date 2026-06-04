@@ -31,7 +31,7 @@ println("Running compressible MHD simulation")
 println("Config file: $(config_path)")
 println("Case directory: $(case_dir)")
 
-history = EnergyHistory(cfg.energy_sample_every)
+history = EnergyHistory(cfg.energy_sample_every, cfg.sound_speed)
 callback_energy = make_history_callback(history, csv_path)
 prob, device_label = build_problem(cfg; usr_func = [callback_energy])
 write_case_metadata(metadata_path, cfg, device_label)
@@ -64,6 +64,11 @@ write_energy_csv(csv_path, history)
 stats = late_window_stats(history, cfg)
 println("Energy history CSV: $(csv_path)")
 println("Snapshot directory: $(snapshot_root(cfg))")
+if !isempty(history.times)
+    last_sample = lastindex(history.times)
+    println("Final sonic Mach: $(round(history.sonic_mach[last_sample], digits = 4))")
+    println("Final Alfven Mach mean/total/fluct: $(round(history.alfven_mach_mean[last_sample], digits = 4)), $(round(history.alfven_mach_total[last_sample], digits = 4)), $(round(history.alfven_mach_fluct[last_sample], digits = 4))")
+end
 if stats === nothing
     println("Stability heuristic: insufficient samples")
 else

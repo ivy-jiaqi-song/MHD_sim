@@ -139,6 +139,59 @@ integration finishes and compares kinetic energy, fluctuating magnetic energy,
 and their sum. Its lower panel normalizes each curve against the final 25% of
 the sampled time range to make late-time stability easier to inspect.
 
+`energy_history.csv` also records basic Mach diagnostics for follow-up
+statistics. The runner uses the density-weighted turbulent velocity
+
+```text
+u_rms = sqrt(<rho |u - <u>_rho|^2> / <rho>)
+```
+
+and the configured isothermal sound speed:
+
+```text
+M_s = u_rms / c_s
+```
+
+For Alfvenic Mach numbers, the relevant definition is velocity divided by an
+Alfven speed, not `<B> / B`:
+
+```text
+v_A(B_ref) = B_ref / sqrt(<rho>)
+M_A(B_ref) = u_rms / v_A(B_ref)
+```
+
+This matches the code normalization used by the existing magnetic energy
+diagnostic, `0.5 * <|B|^2>`.
+
+The CSV records three useful choices for `B_ref`:
+
+| Column | Magnetic reference |
+| --- | --- |
+| `alfven_mach_mean` | `|<B>|`, the guide/mean field |
+| `alfven_mach_total` | `sqrt(<|B|^2>)`, mean plus fluctuations |
+| `alfven_mach_fluct` | `sqrt(<|B - <B>|^2>)`, fluctuations only |
+
+It also records `velocity_rms`, `velocity_fluct_rms`, `sonic_mach`,
+`sonic_mach_total`, `magnetic_mean_strength`, `magnetic_rms_total`,
+`magnetic_rms_fluct`, and the corresponding Alfven speeds. `NaN` means the
+chosen magnetic reference is zero, for example the fluctuating field at the
+initial snapshot.
+
+Existing `.h5` snapshots are sufficient for post-processing these diagnostics:
+they contain `gas_density`, `i_velocity`, `j_velocity`, `k_velocity`,
+`i_mag_field`, `j_mag_field`, `k_mag_field`, and `time`. For sonic Mach, also
+read `sound_speed` from `analysis/case_metadata.toml` or from the config used
+for that run.
+
+To compare runs, change the input parameters and let the diagnostics measure
+the resulting state. `sound_speed` directly changes `M_s`; larger `c_s` lowers
+`M_s` for the same turbulent velocity. `mean_field` directly changes the
+mean-field Alfven speed; a stronger guide field lowers `alfven_mach_mean`.
+`forcing_power` changes the driven turbulent velocity and therefore changes
+both `M_s` and `M_A`. `viscosity` and `resistivity` mainly change dissipation,
+Reynolds number, and saturation behavior, so they affect Mach numbers
+indirectly rather than serving as clean Mach-number knobs.
+
 ![Example energy-history stability figure](./docs/energy_history_support_example.png)
 
 Regenerate the figure for the newest completed case:

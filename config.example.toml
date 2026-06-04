@@ -22,13 +22,13 @@ tag_suffix = ""
 nx = 128
 box_size = 6.283185307179586
 float_type = "Float32"
-sound_speed = 1.4142135623730951
+sound_speed = 1.4142135623730951 # higher values lower sonic Mach for fixed turbulence
 viscosity = 0.01
 resistivity = 0.01
-mean_field = [1.0, 0.0, 0.0]
+mean_field = [1.0, 0.0, 0.0] # stronger guide field lowers mean-field Alfven Mach
 
 forcing_wavenumber = 2.0
-forcing_power = 8000.0
+forcing_power = 8000.0 # stronger forcing usually raises both sonic and Alfven Mach
 forcing_width = 1.0
 initial_velocity_power = 0.0005
 
