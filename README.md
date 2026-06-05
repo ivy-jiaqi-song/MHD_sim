@@ -206,6 +206,38 @@ Or provide a specific case directory:
 julia .\plot_energy_history.jl .\outputs\<case-tag>
 ```
 
+## 2D Kolmogorov HD Side Run
+
+The side-task runner `run_kolmogorov_hd.jl` sets up the incompressible
+hydrodynamic Kolmogorov-flow benchmark from arXiv:2507.08972v2 without editing
+the external `MHDFlows_dev-main/` checkout. It uses `HDSolver.jl` through
+`MHDFlows.Problem` with no magnetic field and no compressibility. Because the
+underlying `FourierFlows.ThreeDGrid` requires even grid sizes in every
+direction, the runner uses `nz = 2` as a degenerate z embedding while keeping
+the initial condition and forcing z-independent. It injects the steady force
+
+```text
+f_x = 0.1 sin(4 pi y), f_y = 0, f_z = 0
+```
+
+on `[0, 1]^2` with `Re = 1e6`.
+
+The config sets `disable_package_dealiasing = true` because the upstream HD
+problem constructor always builds a grid with the default dealiasing policy.
+That default is tuned for the usual `2*pi` box and removes the low physical
+modes when the paper's `[0, 1]^2` domain is used directly. The runner installs
+this as an in-memory shim only; it does not edit `MHDFlows_dev-main/`.
+
+Run with the tracked example config:
+
+```powershell
+julia .\run_kolmogorov_hd.jl --config .\config.kolmogorov.example.toml
+```
+
+For local changes, copy it to `config.kolmogorov.local.toml`; that file is
+ignored by Git. Outputs go to `outputs/<case-tag>/analysis/` and
+`outputs/<case-tag>/snapshots/`.
+
 ## Repository Notes
 
 Generated outputs are ignored by Git because HDF5 snapshots can become large.
