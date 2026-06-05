@@ -25,7 +25,6 @@ cfg.diagnostics_sample_every > 0 || error("diagnostics_sample_every must be posi
 cfg.nz >= 2 && iseven(cfg.nz) || error("MHDFlows/FourierFlows requires even nz; use nz = 2 for a degenerate 2D run")
 cfg.fixed_dt > 0 || error("Use a positive fixed_dt for this high-Reynolds-number Kolmogorov run")
 
-ensure_kolmogorov_case_dirs!(cfg)
 case_dir = kolmogorov_case_root(cfg)
 csv_path = joinpath(kolmogorov_analysis_root(cfg), "energy_enstrophy_history.csv")
 metadata_path = joinpath(kolmogorov_analysis_root(cfg), "case_metadata.toml")
@@ -34,6 +33,22 @@ snapshot_prefix = joinpath(kolmogorov_snapshot_root(cfg), "state")
 println("Running 2D incompressible Kolmogorov flow")
 println("Config file: $(config_path)")
 println("Case directory: $(case_dir)")
+
+if cfg.reuse_existing_data && kolmogorov_case_has_data(case_dir)
+    println("Existing Kolmogorov HD data found; skipping simulation")
+    if cfg.plot_after_run
+        include(joinpath(@__DIR__, "plot_kolmogorov_hd.jl"))
+        paths = plot_kolmogorov_hd(case_dir)
+        println("Vorticity snapshots figure: $(paths.vorticity)")
+        println("Energy/enstrophy figure: $(paths.history)")
+        println("Final spectrum figure: $(paths.spectrum)")
+    else
+        println("Automatic plotting is disabled")
+    end
+    exit(0)
+end
+
+ensure_kolmogorov_case_dirs!(cfg)
 
 history = KolmogorovHistory(cfg.diagnostics_sample_every)
 snapshot_writer = SnapshotWriter(snapshot_prefix, cfg.snapshot_dt, 0.0, 0, NaN)
@@ -51,6 +66,8 @@ println("Runtime no-dealias shim: $(cfg.disable_package_dealiasing)")
 println("Fixed dt: $(cfg.fixed_dt)")
 println("Target end time: $(cfg.end_time)")
 println("Snapshot interval: $(cfg.snapshot_dt)")
+println("Automatic plotting: $(cfg.plot_after_run)")
+println("Reuse existing data: $(cfg.reuse_existing_data)")
 println("Random seed: $(cfg.seed)")
 
 sample_kolmogorov!(history, prob, cfg; force = true)
@@ -76,3 +93,11 @@ println("Final kinetic energy: $(history.kinetic[last_sample])")
 println("Final enstrophy: $(history.enstrophy[last_sample])")
 println("Final velocity RMS: $(history.velocity_rms[last_sample])")
 println("Final divergence RMS: $(history.divergence_rms[last_sample])")
+
+if cfg.plot_after_run
+    include(joinpath(@__DIR__, "plot_kolmogorov_hd.jl"))
+    paths = plot_kolmogorov_hd(case_dir)
+    println("Vorticity snapshots figure: $(paths.vorticity)")
+    println("Energy/enstrophy figure: $(paths.history)")
+    println("Final spectrum figure: $(paths.spectrum)")
+end

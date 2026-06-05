@@ -40,6 +40,8 @@ end_time = 5.0
 max_steps = 100000
 snapshot_dt = 0.5
 diagnostics_sample_every = 10
+plot_after_run = true
+reuse_existing_data = true
 
 seed = 1234
 tag_suffix = ""

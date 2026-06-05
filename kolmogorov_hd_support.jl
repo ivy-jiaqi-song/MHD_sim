@@ -28,6 +28,8 @@ Base.@kwdef struct KolmogorovHDConfig
     max_steps::Int = 100_000
     diagnostics_sample_every::Int = 10
     snapshot_dt::Float64 = 0.5
+    plot_after_run::Bool = true
+    reuse_existing_data::Bool = true
     seed::Int = 1234
     tag_suffix::String = ""
 end
@@ -77,6 +79,16 @@ end
 kolmogorov_case_root(cfg::KolmogorovHDConfig) = joinpath(cfg.output_root, kolmogorov_case_tag(cfg))
 kolmogorov_analysis_root(cfg::KolmogorovHDConfig) = joinpath(kolmogorov_case_root(cfg), "analysis")
 kolmogorov_snapshot_root(cfg::KolmogorovHDConfig) = joinpath(kolmogorov_case_root(cfg), "snapshots")
+
+function kolmogorov_case_has_data(case_dir::AbstractString)
+    csv_path = joinpath(case_dir, "analysis", "energy_enstrophy_history.csv")
+    metadata_path = joinpath(case_dir, "analysis", "case_metadata.toml")
+    snapshot_dir = joinpath(case_dir, "snapshots")
+    isfile(csv_path) || return false
+    isfile(metadata_path) || return false
+    isdir(snapshot_dir) || return false
+    return any(path -> endswith(lowercase(path), ".h5"), readdir(snapshot_dir; join = true))
+end
 
 function ensure_kolmogorov_case_dirs!(cfg::KolmogorovHDConfig)
     mkpath(kolmogorov_analysis_root(cfg))
@@ -383,6 +395,8 @@ function write_kolmogorov_metadata(path::String, cfg::KolmogorovHDConfig, device
         "max_steps" => cfg.max_steps,
         "diagnostics_sample_every" => cfg.diagnostics_sample_every,
         "snapshot_dt" => cfg.snapshot_dt,
+        "plot_after_run" => cfg.plot_after_run,
+        "reuse_existing_data" => cfg.reuse_existing_data,
         "seed" => cfg.seed,
     )
     open(path, "w") do io
@@ -431,6 +445,8 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
         max_steps = as_int(get_config(settings, "max_steps", defaults.max_steps)),
         diagnostics_sample_every = as_int(get_config(settings, "diagnostics_sample_every", defaults.diagnostics_sample_every)),
         snapshot_dt = as_float(get_config(settings, "snapshot_dt", defaults.snapshot_dt)),
+        plot_after_run = as_bool(get_config(settings, "plot_after_run", defaults.plot_after_run)),
+        reuse_existing_data = as_bool(get_config(settings, "reuse_existing_data", defaults.reuse_existing_data)),
         seed = as_int(get_config(settings, "seed", defaults.seed)),
         tag_suffix = as_string(get_config(settings, "tag_suffix", defaults.tag_suffix)),
     )
@@ -458,6 +474,8 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
         max_steps = cfg.max_steps,
         diagnostics_sample_every = cfg.diagnostics_sample_every,
         snapshot_dt = length(positionals) >= 7 ? parse(Float64, positionals[7]) : cfg.snapshot_dt,
+        plot_after_run = cfg.plot_after_run,
+        reuse_existing_data = cfg.reuse_existing_data,
         seed = length(positionals) >= 8 ? parse(Int, positionals[8]) : cfg.seed,
         tag_suffix = length(positionals) >= 5 ? positionals[5] : cfg.tag_suffix,
     )

@@ -236,7 +236,20 @@ julia .\run_kolmogorov_hd.jl --config .\config.kolmogorov.example.toml
 
 For local changes, copy it to `config.kolmogorov.local.toml`; that file is
 ignored by Git. Outputs go to `outputs/<case-tag>/analysis/` and
-`outputs/<case-tag>/snapshots/`.
+`outputs/<case-tag>/snapshots/`. The config defaults to `plot_after_run = true`
+and `reuse_existing_data = true`, so rerunning the same case tag will reuse the
+existing CSV/snapshots and regenerate figures instead of repeating the
+simulation.
+
+To plot an existing case manually:
+
+```powershell
+julia .\plot_kolmogorov_hd.jl --config .\config.kolmogorov.example.toml .\outputs\<case-tag>
+```
+
+The plotting script writes `figures/vorticity_snapshots.png`,
+`figures/energy_enstrophy_history.png`, and
+`figures/energy_spectrum_final.png`.
 
 ## Repository Notes
 
