@@ -4,16 +4,17 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./run_background.sh [--config config.local.toml] [--log-root logs] [simulation positional overrides...]
+  ./scripts/run_background.sh [--config configs/config.local.toml] [--log-root logs] [simulation positional overrides...]
 
 Examples:
-  ./run_background.sh
-  ./run_background.sh --config config.local.toml
-  ./run_background.sh --config config.local.toml 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234
+  ./scripts/run_background.sh
+  ./scripts/run_background.sh --config configs/config.local.toml
+  ./scripts/run_background.sh --config configs/config.local.toml 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234
 EOF
 }
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_root/.." && pwd)"
 config=""
 log_root="logs"
 run_args=()
@@ -63,7 +64,7 @@ stamp="$(date +%Y%m%d_%H%M%S)"
 log_file="$log_root/simulation_$stamp.log"
 pid_file="$log_root/simulation_$stamp.pid"
 
-cmd=(julia "$repo_root/run_simulation.jl")
+cmd=(julia "$repo_root/scripts/run_simulation.jl")
 if [[ -n "$config" ]]; then
   cmd+=(--config "$config")
 fi

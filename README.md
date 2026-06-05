@@ -17,8 +17,9 @@ MHDFlows_dev-main/
 ```
 
 That folder is intentionally ignored by Git because it is external code. If you
-keep the package elsewhere, set `mhdflows_project` in `config.local.toml`, or
-set `MHDFLOWS_PROJECT` before running the scripts.
+keep the package elsewhere, set `mhdflows_project` in
+`configs/config.local.toml`, or set `MHDFLOWS_PROJECT` before running the
+scripts.
 
 Instantiate the solver environment once:
 
@@ -36,10 +37,10 @@ in memory. It does not edit the external `MHDFlows` checkout on disk.
 Copy the tracked example config to your ignored local config:
 
 ```powershell
-Copy-Item .\config.example.toml .\config.local.toml
+Copy-Item .\configs\config.example.toml .\configs\config.local.toml
 ```
 
-Edit `config.local.toml` for your machine and run settings:
+Edit `configs/config.local.toml` for your machine and run settings:
 
 ```toml
 mhdflows_project = "MHDFlows_dev-main"
@@ -55,21 +56,22 @@ snapshot_dt = 5.0
 seed = 1234
 ```
 
-`config.local.toml` is ignored by Git, so local machine paths and experiment
-notes stay out of GitHub.
+`configs/config.local.toml` is ignored by Git, so local machine paths and
+experiment notes stay out of GitHub. A legacy root `config.local.toml` is still
+accepted for existing local workspaces.
 
 ## Run
 
 Start a simulation with the defaults:
 
 ```powershell
-julia .\run_simulation.jl
+julia .\scripts\run_simulation.jl
 ```
 
 Optional positional overrides preserve the order used by the original script:
 
 ```text
-julia run_simulation.jl [--config config.local.toml] [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]
+julia scripts/run_simulation.jl [--config configs/config.local.toml] [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]
 ```
 
 Set `fixed_dt` to `0` to use the solver's adaptive CFL timestep.
@@ -81,25 +83,25 @@ background and write logs under `logs/`.
 On Windows PowerShell:
 
 ```powershell
-.\run_background.ps1 -Config .\config.local.toml
+.\scripts\run_background.ps1 -Config .\configs\config.local.toml
 ```
 
 For a quick background smoke test with positional overrides:
 
 ```powershell
-.\run_background.ps1 -Config .\config.local.toml -- 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234
+.\scripts\run_background.ps1 -Config .\configs\config.local.toml -- 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234
 ```
 
 On Linux/macOS or a remote shell:
 
 ```bash
-./run_background.sh --config config.local.toml
+./scripts/run_background.sh --config configs/config.local.toml
 ```
 
 Both wrappers print a process ID and log file path. The `logs/` directory is
 ignored by Git.
 
-Device selection comes from `device` in `config.local.toml`:
+Device selection comes from `device` in `configs/config.local.toml`:
 
 ```toml
 device = "auto" # auto, cpu, or gpu
@@ -197,18 +199,19 @@ indirectly rather than serving as clean Mach-number knobs.
 Regenerate the figure for the newest completed case:
 
 ```powershell
-julia .\plot_energy_history.jl
+julia .\scripts\plot_energy_history.jl
 ```
 
 Or provide a specific case directory:
 
 ```powershell
-julia .\plot_energy_history.jl .\outputs\<case-tag>
+julia .\scripts\plot_energy_history.jl .\outputs\<case-tag>
 ```
 
 ## Repository Notes
 
 Generated outputs are ignored by Git because HDF5 snapshots can become large.
 `MHDFlows_dev-main/` is also ignored because it is an external package checkout,
-not original code from this repository. `config.local.toml` and `task*.md` are
-ignored because they are machine-local working notes/settings.
+not original code from this repository. `configs/config.local.toml`,
+legacy `config.local.toml`, and `task*.md` are ignored because they are
+machine-local working notes/settings.

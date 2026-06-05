@@ -11,12 +11,12 @@ $ErrorActionPreference = "Stop"
 
 if ($Help) {
     Write-Host "Usage:"
-    Write-Host "  .\run_background.ps1 [-Config .\config.local.toml] [-LogRoot logs] [-- nx end_time forcing_power viscosity resistivity tag_suffix fixed_dt snapshot_dt seed]"
+    Write-Host "  .\scripts\run_background.ps1 [-Config .\configs\config.local.toml] [-LogRoot logs] [-- nx end_time forcing_power viscosity resistivity tag_suffix fixed_dt snapshot_dt seed]"
     Write-Host ""
     Write-Host "Examples:"
-    Write-Host "  .\run_background.ps1"
-    Write-Host "  .\run_background.ps1 -Config .\config.local.toml"
-    Write-Host "  .\run_background.ps1 -Config .\config.local.toml -- 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234"
+    Write-Host "  .\scripts\run_background.ps1"
+    Write-Host "  .\scripts\run_background.ps1 -Config .\configs\config.local.toml"
+    Write-Host "  .\scripts\run_background.ps1 -Config .\configs\config.local.toml -- 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234"
     exit 0
 }
 
@@ -36,7 +36,8 @@ function Quote-Argument {
     return $Value
 }
 
-$repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Split-Path -Parent $scriptRoot
 $logDir = if ([System.IO.Path]::IsPathRooted($LogRoot)) {
     $LogRoot
 } else {
@@ -50,7 +51,7 @@ $stdoutLog = Join-Path $logDir "simulation_$stamp.out.log"
 $stderrLog = Join-Path $logDir "simulation_$stamp.err.log"
 $pidFile = Join-Path $logDir "simulation_$stamp.pid"
 
-$arguments = @("run_simulation.jl")
+$arguments = @((Join-Path "scripts" "run_simulation.jl"))
 if ($Config -ne "") {
     $arguments += @("--config", $Config)
 }

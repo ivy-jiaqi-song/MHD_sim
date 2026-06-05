@@ -6,8 +6,10 @@ using Random
 using Statistics
 using TOML
 
+workspace_root() = isdefined(Main, :repo_root) ? repo_root() : normpath(joinpath(@__DIR__, ".."))
+
 Base.@kwdef struct SimulationConfig
-    output_root::String = joinpath(@__DIR__, "outputs")
+    output_root::String = joinpath(workspace_root(), "outputs")
     device::String = "auto"
     apply_cpu_compatibility_shim::Bool = true
     name::String = "compressible_mhd_baseline"

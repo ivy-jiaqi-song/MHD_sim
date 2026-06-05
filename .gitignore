@@ -12,6 +12,7 @@ task*.md
 
 # Machine-specific run settings.
 config.local.toml
+configs/config.local.toml
 
 # Julia-generated local files.
 *.ji

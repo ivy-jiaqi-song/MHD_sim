@@ -2,7 +2,7 @@ is_plot_entrypoint = abspath(PROGRAM_FILE) == @__FILE__
 
 if is_plot_entrypoint && !isempty(ARGS) && ARGS[1] in ["-h", "--help"]
     println("Usage:")
-    println("  julia plot_energy_history.jl [--config config.local.toml] [case_dir]")
+    println("  julia scripts/plot_energy_history.jl [--config configs/config.local.toml] [case_dir]")
     println()
     println("When case_dir is omitted, the newest case under the configured output_root is used.")
     exit(0)

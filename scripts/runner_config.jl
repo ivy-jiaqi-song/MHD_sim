@@ -1,6 +1,7 @@
 using TOML
 
-repo_root() = @__DIR__
+repo_root() = normpath(joinpath(@__DIR__, ".."))
+config_root() = joinpath(repo_root(), "configs")
 
 function resolve_repo_path(path::AbstractString)
     expanded = expanduser(String(path))
@@ -8,9 +9,15 @@ function resolve_repo_path(path::AbstractString)
 end
 
 function default_config_path()
-    local_path = joinpath(repo_root(), "config.local.toml")
-    example_path = joinpath(repo_root(), "config.example.toml")
-    return isfile(local_path) ? local_path : example_path
+    local_path = joinpath(config_root(), "config.local.toml")
+    legacy_local_path = joinpath(repo_root(), "config.local.toml")
+    example_path = joinpath(config_root(), "config.example.toml")
+    if isfile(local_path)
+        return local_path
+    elseif isfile(legacy_local_path)
+        return legacy_local_path
+    end
+    return example_path
 end
 
 function load_config(path::Union{Nothing, AbstractString})
@@ -27,7 +34,7 @@ function mhdflows_project_path(settings)
     configured = String(get_config(settings, "mhdflows_project", "MHDFlows_dev-main"))
     path = get(ENV, "MHDFLOWS_PROJECT", configured)
     resolved = resolve_repo_path(path)
-    isdir(resolved) || error("MHDFlows project not found at $(resolved). Set mhdflows_project in config.local.toml or set MHDFLOWS_PROJECT.")
+    isdir(resolved) || error("MHDFlows project not found at $(resolved). Set mhdflows_project in configs/config.local.toml or set MHDFLOWS_PROJECT.")
     isfile(joinpath(resolved, "Project.toml")) || error("MHDFlows project is missing Project.toml: $(resolved)")
     return resolved
 end

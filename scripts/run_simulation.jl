@@ -1,9 +1,9 @@
 if !isempty(ARGS) && ARGS[1] in ["-h", "--help"]
     println("Usage:")
-    println("  julia run_simulation.jl [--config config.local.toml]")
-    println("  julia run_simulation.jl [--config config.local.toml] [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]")
+    println("  julia scripts/run_simulation.jl [--config configs/config.local.toml]")
+    println("  julia scripts/run_simulation.jl [--config configs/config.local.toml] [nx] [end_time] [forcing_power] [viscosity] [resistivity] [tag_suffix] [fixed_dt] [snapshot_dt] [seed]")
     println()
-    println("Default config order: config.local.toml when present, otherwise config.example.toml.")
+    println("Default config order: configs/config.local.toml, legacy config.local.toml, then configs/config.example.toml.")
     println("Set fixed_dt = 0 to use the solver's adaptive CFL timestep.")
     exit(0)
 end
@@ -83,5 +83,5 @@ try
     figure_path = plot_energy_history(case_dir)
     println("Energy history figure: $(figure_path)")
 catch err
-    @warn "Simulation completed, but the energy-history figure could not be generated. Run plot_energy_history.jl after fixing the plotting environment." exception = (err, catch_backtrace())
+    @warn "Simulation completed, but the energy-history figure could not be generated. Run scripts/plot_energy_history.jl after fixing the plotting environment." exception = (err, catch_backtrace())
 end
