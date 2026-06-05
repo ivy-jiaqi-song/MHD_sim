@@ -1,0 +1,45 @@
+# Copy this file to config.kolmogorov.local.toml for machine-specific settings.
+# The local copy is ignored by Git.
+
+mhdflows_project = "MHDFlows_dev-main"
+output_root = "outputs"
+device = "auto" # auto, cpu, or gpu
+
+name = "kolmogorov_hd"
+description = "2D incompressible Kolmogorov flow: f_x = 0.1 sin(4*pi*y), f_y = 0"
+
+nx = 128
+ny = 128
+# MHDFlows uses a 3D grid constructor that requires every dimension to be even.
+# nz = 2 is a degenerate z embedding; the initial condition and forcing are
+# z-independent, so the intended dynamics remain 2D.
+nz = 2
+domain_length = 1.0
+float_type = "Float32"
+
+# Paper setup: Re = 1e6, so viscosity = 1 / Re.
+reynolds_number = 1000000.0
+viscosity = 0.000001
+
+force_amplitude = 0.1
+force_mode_y = 2
+
+# MHDFlows' HD path always constructs a grid with its default dealiasing,
+# which is tuned for a 2*pi box. For the paper's [0, 1]^2 domain it removes
+# the low physical modes, so this runner installs a runtime shim that skips
+# package-level dealiasing for this side run.
+disable_package_dealiasing = true
+
+initial_velocity_rms = 0.001
+initial_modes = 4
+
+# Keep a fixed timestep. The package's generic adaptive CFL estimate is not
+# conservative enough for this high-Reynolds-number 2D benchmark.
+fixed_dt = 0.001
+end_time = 5.0
+max_steps = 100000
+snapshot_dt = 0.5
+diagnostics_sample_every = 10
+
+seed = 1234
+tag_suffix = ""
