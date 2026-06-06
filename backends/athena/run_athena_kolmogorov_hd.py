@@ -333,7 +333,7 @@ data_format = %24.16e
 
 <output2>
 file_type = vtk
-variable  = vel
+variable  = v
 dt        = {cfg.snapshot_dt:.16g}
 
 <time>
