@@ -215,7 +215,7 @@ def snapshot_paths(case_dir: Path) -> list[Path]:
     return paths
 
 
-def select_indices(n: int, max_panels: int = 4) -> list[int]:
+def select_indices(n: int, max_panels: int = 6) -> list[int]:
     count = min(max_panels, n)
     return sorted(set(int(round(v)) for v in np.linspace(0, n - 1, count)))
 
@@ -245,42 +245,96 @@ def import_pyplot():
     return plt
 
 
-def plot_vorticity_snapshots(case_dir: Path) -> Path:
+def subplot_grid(n: int) -> tuple[int, int]:
+    if n <= 3:
+        return 1, n
+    return 2, int(math.ceil(n / 2))
+
+
+def hide_unused_axes(axes: np.ndarray, used: int) -> None:
+    for axis in axes.ravel()[used:]:
+        axis.set_visible(False)
+
+
+def plot_field_snapshots(
+    case_dir: Path,
+    values_fn,
+    cmap: str,
+    colorbar_label: str,
+    output_name: str,
+    symmetric: bool = False,
+) -> Path:
     plt = import_pyplot()
-    selected = [snapshot_paths(case_dir)[i] for i in select_indices(len(snapshot_paths(case_dir)))]
+    paths = snapshot_paths(case_dir)
+    selected = [paths[i] for i in select_indices(len(paths))]
     snapshots = [read_vtk(path) for path in selected]
-    omegas = [vorticity(snapshot) for snapshot in snapshots]
-    clim = max(float(np.max(np.abs(omega))) for omega in omegas) or 1.0
-    fig, axes = plt.subplots(1, len(snapshots), figsize=(4 * len(snapshots) + 0.9, 3.6), squeeze=False)
+    fields = [values_fn(snapshot) for snapshot in snapshots]
+    rows, cols = subplot_grid(len(snapshots))
+    fig, axes = plt.subplots(rows, cols, figsize=(5.0 * cols, 4.2 * rows), squeeze=False)
+    if symmetric:
+        clim = max(float(np.max(np.abs(field))) for field in fields) or 1.0
+        vmin, vmax = -clim, clim
+    else:
+        vmin = min(float(np.min(field)) for field in fields)
+        vmax = max(float(np.max(field)) for field in fields)
+        if np.isclose(vmin, vmax):
+            vmax = vmin + 1.0
+
     image = None
-    for axis, snapshot, omega in zip(axes.ravel(), snapshots, omegas):
+    for axis, snapshot, field in zip(axes.ravel(), snapshots, fields):
         image = axis.imshow(
-            omega,
+            field,
             origin="lower",
             extent=[snapshot["x"][0], snapshot["x"][-1], snapshot["y"][0], snapshot["y"][-1]],
-            cmap="RdBu_r",
-            vmin=-clim,
-            vmax=clim,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
             interpolation="nearest",
             aspect="equal",
         )
         axis.set_title(f"t = {snapshot['time']:.3f}")
         axis.set_xlabel("x")
         axis.set_ylabel("y")
-    fig.subplots_adjust(right=0.9, top=0.78, wspace=0.28)
-    cax = fig.add_axes([0.925, 0.22, 0.014, 0.55])
+    hide_unused_axes(axes, len(snapshots))
+    fig.subplots_adjust(right=0.9, wspace=0.18, hspace=0.22)
+    cax = fig.add_axes([0.92, 0.18, 0.018, 0.64])
     cbar = fig.colorbar(image, cax=cax)
-    cbar.set_label(r"$\omega_z$")
-    fig.suptitle("Athena++ Kolmogorov HD vorticity snapshots", y=0.94)
-    output = case_dir / "figures" / "vorticity_snapshots.png"
+    cbar.set_label(colorbar_label)
+    output = case_dir / "figures" / output_name
     fig.savefig(output, dpi=180, bbox_inches="tight")
     plt.close(fig)
     return output
 
 
+def plot_vorticity_snapshots(case_dir: Path) -> Path:
+    return plot_field_snapshots(
+        case_dir,
+        vorticity,
+        "RdBu_r",
+        r"$\omega_z$",
+        "vorticity_snapshots.png",
+        symmetric=True,
+    )
+
+
+def velocity_magnitude(snapshot: dict) -> np.ndarray:
+    return np.sqrt(snapshot["vx"] ** 2 + snapshot["vy"] ** 2)
+
+
+def plot_velocity_magnitude_snapshots(case_dir: Path) -> Path:
+    return plot_field_snapshots(
+        case_dir,
+        velocity_magnitude,
+        "viridis",
+        "Velocity Magnitude",
+        "velocity_magnitude_snapshots.png",
+    )
+
+
 def plot_velocity_phase_snapshots(case_dir: Path) -> Path:
     plt = import_pyplot()
-    selected = [snapshot_paths(case_dir)[i] for i in select_indices(len(snapshot_paths(case_dir)))]
+    paths = snapshot_paths(case_dir)
+    selected = [paths[i] for i in select_indices(len(paths), max_panels=4)]
     snapshots = [read_vtk(path) for path in selected]
     vmax = max(
         max(float(np.max(np.abs(snapshot["vx"]))), float(np.max(np.abs(snapshot["vy"]))))
@@ -390,6 +444,7 @@ def plot_athena_kolmogorov_hd(case_dir: Path) -> dict[str, Path]:
     write_analysis_csv(case_dir, metadata)
     return {
         "vorticity": plot_vorticity_snapshots(case_dir),
+        "velocity_magnitude": plot_velocity_magnitude_snapshots(case_dir),
         "velocity_phase": plot_velocity_phase_snapshots(case_dir),
         "history": plot_energy_enstrophy_history(case_dir),
         "spectrum": plot_final_energy_spectrum(case_dir, metadata),

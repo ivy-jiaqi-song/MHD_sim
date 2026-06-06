@@ -137,6 +137,7 @@ The plotting scripts write:
 
 ```text
 figures/vorticity_snapshots.png
+figures/velocity_magnitude_snapshots.png
 figures/vy_vs_vx_snapshots.png
 figures/energy_enstrophy_history.png
 figures/energy_spectrum_final.png
