@@ -26,6 +26,7 @@ namespace {
 Real force_amplitude;
 Real force_mode_y;
 Real initial_velocity_rms;
+Real grid_noise_velocity_amplitude;
 Real iso_sound_speed;
 std::string initial_condition;
 int initial_modes;
@@ -224,6 +225,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   force_mode_y = pin->GetOrAddReal("problem", "force_mode_y", 2.0);
   initial_condition = pin->GetOrAddString("problem", "initial_condition", "fourier_divfree");
   initial_velocity_rms = pin->GetOrAddReal("problem", "initial_velocity_rms", 1.0e-3);
+  grid_noise_velocity_amplitude =
+      pin->GetOrAddReal("problem", "grid_noise_velocity_amplitude", force_amplitude);
   iso_sound_speed = pin->GetOrAddReal("hydro", "iso_sound_speed", 10.0);
   initial_modes = pin->GetOrAddInteger("problem", "initial_modes", 4);
   random_seed = pin->GetOrAddInteger("problem", "seed", 1234);
@@ -343,7 +346,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   }
 
   const Real rms = std::sqrt(sum_speed2 / std::max(ncell, 1));
-  const Real scale = (rms > 0.0) ? initial_velocity_rms / rms : 0.0;
+  const Real scale = use_grid_noise ? grid_noise_velocity_amplitude
+                                    : ((rms > 0.0) ? initial_velocity_rms / rms : 0.0);
   for (int k = ks; k <= ke; ++k) {
     for (int j = js; j <= je; ++j) {
       for (int i = is; i <= ie; ++i) {

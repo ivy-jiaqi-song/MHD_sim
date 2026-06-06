@@ -24,6 +24,7 @@ Base.@kwdef struct KolmogorovHDConfig
     disable_package_dealiasing::Bool = true
     initial_condition::String = "fourier_divfree"
     initial_velocity_rms::Float64 = 1.0e-3
+    grid_noise_velocity_amplitude::Float64 = 0.1
     initial_modes::Int = 4
     fixed_dt::Float64 = 1.0e-3
     end_time::Float64 = 5.0
@@ -78,7 +79,7 @@ function initial_condition_case_suffix(cfg::KolmogorovHDConfig)
     if mode in ("fourier_divfree", "fourier-divfree", "divfree", "divergence_free")
         return ""
     elseif mode in ("grid_noise", "grid-noise", "noise")
-        return "_ICgridnoise"
+        return "_ICgridnoise_U$(float_tag(cfg.grid_noise_velocity_amplitude))"
     end
     return "_IC$(replace(mode, r"[^a-z0-9]+" => ""))"
 end
@@ -189,6 +190,15 @@ function normalize_initial_velocity!(ux, uy, cfg::KolmogorovHDConfig)
     return ux, uy
 end
 
+function scale_grid_noise_velocity!(ux, uy, cfg::KolmogorovHDConfig)
+    ux .-= eltype(ux)(mean(ux))
+    uy .-= eltype(uy)(mean(uy))
+    scale = eltype(ux)(cfg.grid_noise_velocity_amplitude)
+    ux .*= scale
+    uy .*= scale
+    return ux, uy
+end
+
 function random_divfree_2d_initial_condition(cfg::KolmogorovHDConfig)
     T = cfg.float_type
     ux = zeros(T, cfg.nx, cfg.ny, cfg.nz)
@@ -236,7 +246,7 @@ function random_grid_noise_initial_condition(cfg::KolmogorovHDConfig)
         end
     end
 
-    normalize_initial_velocity!(ux, uy, cfg)
+    scale_grid_noise_velocity!(ux, uy, cfg)
 
     return ux, uy, uz
 end
@@ -458,6 +468,7 @@ function write_kolmogorov_metadata(path::String, cfg::KolmogorovHDConfig, device
         "force_form" => "f_x = force_amplitude * sin(2*pi*force_mode_y*y/domain_length), f_y = 0, f_z = 0",
         "initial_condition" => cfg.initial_condition,
         "initial_velocity_rms" => cfg.initial_velocity_rms,
+        "grid_noise_velocity_amplitude" => cfg.grid_noise_velocity_amplitude,
         "initial_modes" => cfg.initial_modes,
         "fixed_dt" => cfg.fixed_dt,
         "end_time" => cfg.end_time,
@@ -491,6 +502,7 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
     defaults = KolmogorovHDConfig()
     re_configured = as_float(get_config(settings, "reynolds_number", defaults.reynolds_number))
     viscosity = as_float(get_config(settings, "viscosity", 1.0 / re_configured))
+    force_amplitude = as_float(get_config(settings, "force_amplitude", defaults.force_amplitude))
 
     cfg = KolmogorovHDConfig(;
         backend = "mhdflows",
@@ -505,11 +517,12 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
         float_type = as_datatype(get_config(settings, "float_type", string(defaults.float_type))),
         reynolds_number = re_configured,
         viscosity = viscosity,
-        force_amplitude = as_float(get_config(settings, "force_amplitude", defaults.force_amplitude)),
+        force_amplitude = force_amplitude,
         force_mode_y = as_int(get_config(settings, "force_mode_y", defaults.force_mode_y)),
         disable_package_dealiasing = as_bool(get_config(settings, "disable_package_dealiasing", defaults.disable_package_dealiasing)),
         initial_condition = as_string(get_config(settings, "initial_condition", defaults.initial_condition)),
         initial_velocity_rms = as_float(get_config(settings, "initial_velocity_rms", defaults.initial_velocity_rms)),
+        grid_noise_velocity_amplitude = as_float(get_config(settings, "grid_noise_velocity_amplitude", force_amplitude)),
         initial_modes = as_int(get_config(settings, "initial_modes", defaults.initial_modes)),
         fixed_dt = as_float(get_config(settings, "fixed_dt", defaults.fixed_dt)),
         end_time = as_float(get_config(settings, "end_time", defaults.end_time)),
@@ -523,6 +536,8 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
     )
 
     isempty(positionals) && return cfg
+    positional_force_amplitude = length(positionals) >= 3 ? parse(Float64, positionals[3]) : cfg.force_amplitude
+    positional_grid_noise_velocity_amplitude = length(positionals) >= 3 && !haskey(settings, "grid_noise_velocity_amplitude") ? positional_force_amplitude : cfg.grid_noise_velocity_amplitude
     return KolmogorovHDConfig(;
         output_root = cfg.output_root,
         backend = cfg.backend,
@@ -536,11 +551,12 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
         float_type = cfg.float_type,
         reynolds_number = cfg.reynolds_number,
         viscosity = length(positionals) >= 4 ? parse(Float64, positionals[4]) : cfg.viscosity,
-        force_amplitude = length(positionals) >= 3 ? parse(Float64, positionals[3]) : cfg.force_amplitude,
+        force_amplitude = positional_force_amplitude,
         force_mode_y = cfg.force_mode_y,
         disable_package_dealiasing = cfg.disable_package_dealiasing,
         initial_condition = cfg.initial_condition,
         initial_velocity_rms = cfg.initial_velocity_rms,
+        grid_noise_velocity_amplitude = positional_grid_noise_velocity_amplitude,
         initial_modes = cfg.initial_modes,
         fixed_dt = length(positionals) >= 6 ? parse(Float64, positionals[6]) : cfg.fixed_dt,
         end_time = length(positionals) >= 2 ? parse(Float64, positionals[2]) : cfg.end_time,

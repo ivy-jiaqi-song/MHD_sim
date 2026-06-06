@@ -80,12 +80,12 @@ def float_tag(value: float) -> str:
     return f"{float(value):.4g}".replace("-", "m").replace(".", "p")
 
 
-def initial_condition_case_suffix(value: str) -> str:
+def initial_condition_case_suffix(value: str, grid_noise_velocity_amplitude: float) -> str:
     mode = value.strip().lower()
     if mode in {"fourier_divfree", "fourier-divfree", "divfree", "divergence_free"}:
         return ""
     if mode in {"grid_noise", "grid-noise", "noise"}:
-        return "_ICgridnoise"
+        return f"_ICgridnoise_U{float_tag(grid_noise_velocity_amplitude)}"
     sanitized = "".join(char for char in mode if char.isalnum())
     return f"_IC{sanitized}"
 
@@ -106,6 +106,7 @@ class AthenaConfig:
     force_mode_y: int
     initial_condition: str
     initial_velocity_rms: float
+    grid_noise_velocity_amplitude: float
     initial_modes: int
     end_time: float
     max_steps: int
@@ -133,7 +134,7 @@ class AthenaConfig:
         base = (
             f"{self.name}_n{self.nx}x{self.ny}_Re{float_tag(self.effective_reynolds)}"
             f"_A{float_tag(self.force_amplitude)}_k{self.force_mode_y}_T{float_tag(self.end_time)}"
-            f"{initial_condition_case_suffix(self.initial_condition)}"
+            f"{initial_condition_case_suffix(self.initial_condition, self.grid_noise_velocity_amplitude)}"
         )
         return base if not self.tag_suffix else f"{base}_{self.tag_suffix}"
 
@@ -217,6 +218,7 @@ def config_from_sources(settings: dict, positionals: list[str]) -> AthenaConfig:
         force_mode_y=int(get_config(settings, "force_mode_y", 2)),
         initial_condition=str(get_config(settings, "initial_condition", "fourier_divfree")),
         initial_velocity_rms=float(get_config(settings, "initial_velocity_rms", 1.0e-3)),
+        grid_noise_velocity_amplitude=float(get_config(settings, "grid_noise_velocity_amplitude", force_amplitude)),
         initial_modes=int(get_config(settings, "initial_modes", 4)),
         end_time=end_time,
         max_steps=int(get_config(settings, "max_steps", 100000)),
@@ -305,6 +307,7 @@ def write_metadata(cfg: AthenaConfig) -> Path:
         "force_form": "f_x = force_amplitude * sin(2*pi*force_mode_y*y/domain_length), f_y = 0, f_z = 0",
         "initial_condition": cfg.initial_condition,
         "initial_velocity_rms": cfg.initial_velocity_rms,
+        "grid_noise_velocity_amplitude": cfg.grid_noise_velocity_amplitude,
         "initial_modes": cfg.initial_modes,
         "cfl_number": cfg.cfl_number,
         "end_time": cfg.end_time,
@@ -396,6 +399,7 @@ force_amplitude      = {cfg.force_amplitude:.16g}
 force_mode_y         = {cfg.force_mode_y}
 initial_condition    = {cfg.initial_condition}
 initial_velocity_rms = {cfg.initial_velocity_rms:.16g}
+grid_noise_velocity_amplitude = {cfg.grid_noise_velocity_amplitude:.16g}
 initial_modes        = {cfg.initial_modes}
 seed                 = {cfg.seed}
 """
@@ -461,6 +465,9 @@ def main() -> None:
     print(f"Athena++ project: {cfg.athena_project}")
     print(f"Athena++ work tree: {cfg.athena_work_dir}")
     print(f"Case directory: {cfg.case_dir}")
+    print(f"Initial condition: {cfg.initial_condition}")
+    print(f"Initial velocity RMS for fourier_divfree: {cfg.initial_velocity_rms}")
+    print(f"Grid-noise component amplitude: {cfg.grid_noise_velocity_amplitude}")
     print("Note: Athena++ is compressible; this backend uses low-Mach isothermal HD as a proxy sanity check.")
 
     prepare_athena_tree(cfg)

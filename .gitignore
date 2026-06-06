@@ -22,6 +22,10 @@ config.kolmogorov.local.toml
 *.cov
 *.mem
 
+# Python-generated local files.
+__pycache__/
+*.pyc
+
 # Editor and operating-system files.
 .DS_Store
 Thumbs.db

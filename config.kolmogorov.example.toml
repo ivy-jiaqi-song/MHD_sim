@@ -35,11 +35,14 @@ force_mode_y = 2
 disable_package_dealiasing = true
 
 # Initial condition options:
-# - fourier_divfree: random low-mode divergence-free field, good default.
+# - fourier_divfree: random low-mode divergence-free field, normalized to
+#   initial_velocity_rms.
 # - grid_noise: independent centered random velocity at each (x, y) grid point,
-#   copied through the degenerate z direction and normalized to initial_velocity_rms.
+#   copied through the degenerate z direction and scaled by
+#   grid_noise_velocity_amplitude. This is not divergence-free.
 initial_condition = "fourier_divfree"
 initial_velocity_rms = 0.001
+grid_noise_velocity_amplitude = 0.1
 initial_modes = 4
 
 # Keep a fixed timestep. The package's generic adaptive CFL estimate is not

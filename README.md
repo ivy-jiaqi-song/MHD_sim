@@ -94,10 +94,13 @@ reduce density variation but also reduce Athena's CFL timestep.
 
 `initial_condition = "grid_noise"` is also available for both backends. It sets
 independent centered random `v_x` and `v_y` values at each `(x, y)` point,
-copies them through the degenerate z direction, and normalizes the resulting
-field to `initial_velocity_rms`. This option is deliberately simple and is not
-divergence-free. Non-default initial conditions are included in the case tag,
-for example `_ICgridnoise`, to avoid reusing data from a different setup.
+copies them through the degenerate z direction, subtracts the mean velocity, and
+scales each component by `grid_noise_velocity_amplitude`. This option is
+deliberately simple and is not divergence-free. Grid-noise case tags include the
+amplitude, for example `_ICgridnoise_U0p1`, to avoid reusing data from a
+different setup.
+
+`initial_velocity_rms` applies to `fourier_divfree`, not to `grid_noise`.
 
 ## Run
 
