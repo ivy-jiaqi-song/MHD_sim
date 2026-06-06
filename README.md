@@ -149,10 +149,16 @@ The plotting scripts write:
 ```text
 figures/vorticity_snapshots.png
 figures/velocity_magnitude_snapshots.png
+figures/velocity_x_snapshots.png
+figures/velocity_y_snapshots.png
 figures/vy_vs_vx_snapshots.png
 figures/energy_enstrophy_history.png
 figures/energy_spectrum_final.png
 ```
+
+Velocity magnitude is nonnegative by definition. Use
+`velocity_x_snapshots.png` and `velocity_y_snapshots.png` to inspect signed
+positive/negative velocity structure in the initial grid noise.
 
 ## Outputs
 

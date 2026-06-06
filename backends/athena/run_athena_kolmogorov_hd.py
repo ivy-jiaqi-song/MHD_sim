@@ -431,6 +431,8 @@ def plot_case(cfg: AthenaConfig) -> None:
     paths = plot_athena_kolmogorov_hd(cfg.case_dir)
     print(f"Vorticity snapshots figure: {paths['vorticity']}")
     print(f"Velocity magnitude snapshots figure: {paths['velocity_magnitude']}")
+    print(f"v_x snapshots figure: {paths['velocity_x']}")
+    print(f"v_y snapshots figure: {paths['velocity_y']}")
     print(f"v_y vs v_x snapshots figure: {paths['velocity_phase']}")
     print(f"Energy/enstrophy figure: {paths['history']}")
     print(f"Final spectrum figure: {paths['spectrum']}")

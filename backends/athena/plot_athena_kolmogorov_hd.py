@@ -321,6 +321,14 @@ def velocity_magnitude(snapshot: dict) -> np.ndarray:
     return np.sqrt(snapshot["vx"] ** 2 + snapshot["vy"] ** 2)
 
 
+def velocity_x(snapshot: dict) -> np.ndarray:
+    return snapshot["vx"]
+
+
+def velocity_y(snapshot: dict) -> np.ndarray:
+    return snapshot["vy"]
+
+
 def plot_velocity_magnitude_snapshots(case_dir: Path) -> Path:
     return plot_field_snapshots(
         case_dir,
@@ -328,6 +336,28 @@ def plot_velocity_magnitude_snapshots(case_dir: Path) -> Path:
         "viridis",
         "Velocity Magnitude",
         "velocity_magnitude_snapshots.png",
+    )
+
+
+def plot_velocity_x_snapshots(case_dir: Path) -> Path:
+    return plot_field_snapshots(
+        case_dir,
+        velocity_x,
+        "RdBu_r",
+        r"$v_x$",
+        "velocity_x_snapshots.png",
+        symmetric=True,
+    )
+
+
+def plot_velocity_y_snapshots(case_dir: Path) -> Path:
+    return plot_field_snapshots(
+        case_dir,
+        velocity_y,
+        "RdBu_r",
+        r"$v_y$",
+        "velocity_y_snapshots.png",
+        symmetric=True,
     )
 
 
@@ -445,6 +475,8 @@ def plot_athena_kolmogorov_hd(case_dir: Path) -> dict[str, Path]:
     return {
         "vorticity": plot_vorticity_snapshots(case_dir),
         "velocity_magnitude": plot_velocity_magnitude_snapshots(case_dir),
+        "velocity_x": plot_velocity_x_snapshots(case_dir),
+        "velocity_y": plot_velocity_y_snapshots(case_dir),
         "velocity_phase": plot_velocity_phase_snapshots(case_dir),
         "history": plot_energy_enstrophy_history(case_dir),
         "spectrum": plot_final_energy_spectrum(case_dir, metadata),

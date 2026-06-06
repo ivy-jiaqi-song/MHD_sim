@@ -168,6 +168,83 @@ function plot_vorticity_snapshots(case_dir::AbstractString; max_panels::Int = 4)
     return output_path
 end
 
+function velocity_x_field(snapshot)
+    return mean_xy_component(snapshot.ux)
+end
+
+function velocity_y_field(snapshot)
+    return mean_xy_component(snapshot.uy)
+end
+
+function velocity_magnitude_field(snapshot)
+    ux = mean_xy_component(snapshot.ux)
+    uy = mean_xy_component(snapshot.uy)
+    uz = mean_xy_component(snapshot.uz)
+    return sqrt.(ux .^ 2 .+ uy .^ 2 .+ uz .^ 2)
+end
+
+function plot_velocity_field_snapshots(case_dir::AbstractString, values_fn, cmap::AbstractString, colorbar_label, output_name::AbstractString; symmetric::Bool = false, max_panels::Int = 4)
+    metadata = TOML.parsefile(joinpath(case_dir, "analysis", "case_metadata.toml"))
+    domain_length = Float64(get(metadata, "domain_length", 1.0))
+    paths = snapshot_paths(case_dir)
+    selected = paths[selected_snapshot_indices(length(paths), max_panels)]
+    snapshots = read_velocity_snapshot.(selected)
+    fields = [values_fn(snapshot) for snapshot in snapshots]
+
+    if symmetric
+        clim = maximum(maximum(abs, field) for field in fields)
+        clim = clim > 0 ? clim : 1.0
+        vmin, vmax = -clim, clim
+    else
+        vmin = minimum(minimum(field) for field in fields)
+        vmax = maximum(maximum(field) for field in fields)
+        if isapprox(vmin, vmax; atol = 0.0, rtol = 1.0e-12)
+            vmax = vmin + 1.0
+        end
+    end
+
+    figure_dir = joinpath(case_dir, "figures")
+    mkpath(figure_dir)
+    output_path = joinpath(figure_dir, output_name)
+
+    figure, axes = PyPlot.subplots(1, length(selected); figsize = (4 * length(selected) + 0.9, 3.6), squeeze = false)
+    axes_vec = vec(axes)
+    image = nothing
+    for (axis, snapshot, field) in zip(axes_vec, snapshots, fields)
+        image = axis.imshow(transpose(field);
+            origin = "lower",
+            extent = [0, domain_length, 0, domain_length],
+            cmap = cmap,
+            vmin = vmin,
+            vmax = vmax,
+            interpolation = "nearest",
+            aspect = "equal",
+        )
+        axis.set_title(@sprintf("t = %.3f", snapshot.time))
+        axis.set_xlabel("x")
+        axis.set_ylabel("y")
+    end
+    figure.subplots_adjust(right = 0.9, top = 0.78, wspace = 0.28)
+    cax = figure.add_axes([0.925, 0.22, 0.014, 0.55])
+    cbar = figure.colorbar(image, cax = cax)
+    cbar.set_label(colorbar_label)
+    figure.savefig(output_path; dpi = 180, bbox_inches = "tight")
+    PyPlot.close(figure)
+    return output_path
+end
+
+function plot_velocity_magnitude_snapshots(case_dir::AbstractString)
+    return plot_velocity_field_snapshots(case_dir, velocity_magnitude_field, "viridis", "Velocity Magnitude", "velocity_magnitude_snapshots.png")
+end
+
+function plot_velocity_x_snapshots(case_dir::AbstractString)
+    return plot_velocity_field_snapshots(case_dir, velocity_x_field, "RdBu_r", raw"$v_x$", "velocity_x_snapshots.png"; symmetric = true)
+end
+
+function plot_velocity_y_snapshots(case_dir::AbstractString)
+    return plot_velocity_field_snapshots(case_dir, velocity_y_field, "RdBu_r", raw"$v_y$", "velocity_y_snapshots.png"; symmetric = true)
+end
+
 function velocity_phase_components(snapshot)
     vx = vec(mean_xy_component(snapshot.ux))
     vy = vec(mean_xy_component(snapshot.uy))
@@ -313,6 +390,9 @@ function plot_kolmogorov_hd(case_dir::AbstractString)
     isfile(joinpath(case_dir, "analysis", "case_metadata.toml")) || error("Case metadata does not exist: $(joinpath(case_dir, "analysis", "case_metadata.toml"))")
     return (
         vorticity = plot_vorticity_snapshots(case_dir),
+        velocity_magnitude = plot_velocity_magnitude_snapshots(case_dir),
+        velocity_x = plot_velocity_x_snapshots(case_dir),
+        velocity_y = plot_velocity_y_snapshots(case_dir),
         velocity_phase = plot_velocity_phase_snapshots(case_dir),
         history = plot_energy_enstrophy_history(case_dir),
         spectrum = plot_final_energy_spectrum(case_dir),
@@ -325,6 +405,9 @@ if is_plot_entrypoint
     paths = plot_kolmogorov_hd(case_dir)
     println("Config file: $(config_path)")
     println("Vorticity snapshots figure: $(paths.vorticity)")
+    println("Velocity magnitude snapshots figure: $(paths.velocity_magnitude)")
+    println("v_x snapshots figure: $(paths.velocity_x)")
+    println("v_y snapshots figure: $(paths.velocity_y)")
     println("v_y vs v_x snapshots figure: $(paths.velocity_phase)")
     println("Energy/enstrophy figure: $(paths.history)")
     println("Final spectrum figure: $(paths.spectrum)")
