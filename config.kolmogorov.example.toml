@@ -34,6 +34,11 @@ force_mode_y = 2
 # package-level dealiasing for this side run.
 disable_package_dealiasing = true
 
+# Initial condition options:
+# - fourier_divfree: random low-mode divergence-free field, good default.
+# - grid_noise: independent centered random velocity at each (x, y) grid point,
+#   copied through the degenerate z direction and normalized to initial_velocity_rms.
+initial_condition = "fourier_divfree"
 initial_velocity_rms = 0.001
 initial_modes = 4
 

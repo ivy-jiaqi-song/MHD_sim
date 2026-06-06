@@ -22,6 +22,7 @@ Base.@kwdef struct KolmogorovHDConfig
     force_amplitude::Float64 = 0.1
     force_mode_y::Int = 2
     disable_package_dealiasing::Bool = true
+    initial_condition::String = "fourier_divfree"
     initial_velocity_rms::Float64 = 1.0e-3
     initial_modes::Int = 4
     fixed_dt::Float64 = 1.0e-3
@@ -72,6 +73,16 @@ end
 
 effective_reynolds(cfg::KolmogorovHDConfig) = cfg.viscosity > 0 ? 1.0 / cfg.viscosity : Inf
 
+function initial_condition_case_suffix(cfg::KolmogorovHDConfig)
+    mode = lowercase(strip(cfg.initial_condition))
+    if mode in ("fourier_divfree", "fourier-divfree", "divfree", "divergence_free")
+        return ""
+    elseif mode in ("grid_noise", "grid-noise", "noise")
+        return "_ICgridnoise"
+    end
+    return "_IC$(replace(mode, r"[^a-z0-9]+" => ""))"
+end
+
 function warn_reynolds_viscosity_mismatch(cfg::KolmogorovHDConfig)
     if cfg.reynolds_number <= 0 || cfg.viscosity <= 0
         return nothing
@@ -85,7 +96,7 @@ function warn_reynolds_viscosity_mismatch(cfg::KolmogorovHDConfig)
 end
 
 function kolmogorov_case_tag(cfg::KolmogorovHDConfig)
-    base = "$(cfg.name)_n$(cfg.nx)x$(cfg.ny)_Re$(float_tag(effective_reynolds(cfg)))_A$(float_tag(cfg.force_amplitude))_k$(cfg.force_mode_y)_T$(float_tag(cfg.end_time))"
+    base = "$(cfg.name)_n$(cfg.nx)x$(cfg.ny)_Re$(float_tag(effective_reynolds(cfg)))_A$(float_tag(cfg.force_amplitude))_k$(cfg.force_mode_y)_T$(float_tag(cfg.end_time))$(initial_condition_case_suffix(cfg))"
     return isempty(cfg.tag_suffix) ? base : "$(base)_$(cfg.tag_suffix)"
 end
 
@@ -166,6 +177,18 @@ function build_kolmogorov_force_cache(N, vars, params, grid, cfg::KolmogorovHDCo
     return Fxh
 end
 
+function normalize_initial_velocity!(ux, uy, cfg::KolmogorovHDConfig)
+    ux .-= eltype(ux)(mean(ux))
+    uy .-= eltype(uy)(mean(uy))
+    current_rms = sqrt(Float64(mean(ux .^ 2 .+ uy .^ 2)))
+    if current_rms > 0
+        scale = eltype(ux)(cfg.initial_velocity_rms / current_rms)
+        ux .*= scale
+        uy .*= scale
+    end
+    return ux, uy
+end
+
 function random_divfree_2d_initial_condition(cfg::KolmogorovHDConfig)
     T = cfg.float_type
     ux = zeros(T, cfg.nx, cfg.ny, cfg.nz)
@@ -193,16 +216,46 @@ function random_divfree_2d_initial_condition(cfg::KolmogorovHDConfig)
         end
     end
 
-    ux .-= T(mean(ux))
-    uy .-= T(mean(uy))
-    current_rms = sqrt(Float64(mean(ux .^ 2 .+ uy .^ 2)))
-    if current_rms > 0
-        scale = T(cfg.initial_velocity_rms / current_rms)
-        ux .*= scale
-        uy .*= scale
-    end
+    normalize_initial_velocity!(ux, uy, cfg)
 
     return ux, uy, uz
+end
+
+function random_grid_noise_initial_condition(cfg::KolmogorovHDConfig)
+    T = cfg.float_type
+    ux = zeros(T, cfg.nx, cfg.ny, cfg.nz)
+    uy = zeros(T, cfg.nx, cfg.ny, cfg.nz)
+    uz = zeros(T, cfg.nx, cfg.ny, cfg.nz)
+
+    for j in 1:cfg.ny, i in 1:cfg.nx
+        ux_value = T(centered_grid_noise(cfg.seed, i, j, 1))
+        uy_value = T(centered_grid_noise(cfg.seed, i, j, 2))
+        for k in 1:cfg.nz
+            ux[i, j, k] = ux_value
+            uy[i, j, k] = uy_value
+        end
+    end
+
+    normalize_initial_velocity!(ux, uy, cfg)
+
+    return ux, uy, uz
+end
+
+function unit_grid_phase(seed::Int, i::Int, j::Int, which::Int)
+    x = sin(Float64(seed * 12 + i * 78 + j * 37 + which * 19) * 12.9898) * 43758.5453
+    return x - floor(x)
+end
+
+centered_grid_noise(seed::Int, i::Int, j::Int, which::Int) = 2 * unit_grid_phase(seed, i, j, which) - 1
+
+function kolmogorov_initial_condition(cfg::KolmogorovHDConfig)
+    mode = lowercase(strip(cfg.initial_condition))
+    if mode in ("fourier_divfree", "fourier-divfree", "divfree", "divergence_free")
+        return random_divfree_2d_initial_condition(cfg)
+    elseif mode in ("grid_noise", "grid-noise", "noise")
+        return random_grid_noise_initial_condition(cfg)
+    end
+    error("initial_condition must be \"fourier_divfree\" or \"grid_noise\"; got \"$(cfg.initial_condition)\"")
 end
 
 function build_kolmogorov_problem(cfg::KolmogorovHDConfig; usr_func = [])
@@ -228,7 +281,7 @@ function build_kolmogorov_problem(cfg::KolmogorovHDConfig; usr_func = [])
     )
 
     prob = MHDFlows.Problem(dev; kwargs...)
-    ux, uy, uz = random_divfree_2d_initial_condition(cfg)
+    ux, uy, uz = kolmogorov_initial_condition(cfg)
     set_hd_velocity_ic!(prob; ux = ux, uy = uy, uz = uz)
     return prob, device_label
 end
@@ -403,6 +456,7 @@ function write_kolmogorov_metadata(path::String, cfg::KolmogorovHDConfig, device
         "force_mode_y" => cfg.force_mode_y,
         "disable_package_dealiasing" => cfg.disable_package_dealiasing,
         "force_form" => "f_x = force_amplitude * sin(2*pi*force_mode_y*y/domain_length), f_y = 0, f_z = 0",
+        "initial_condition" => cfg.initial_condition,
         "initial_velocity_rms" => cfg.initial_velocity_rms,
         "initial_modes" => cfg.initial_modes,
         "fixed_dt" => cfg.fixed_dt,
@@ -454,6 +508,7 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
         force_amplitude = as_float(get_config(settings, "force_amplitude", defaults.force_amplitude)),
         force_mode_y = as_int(get_config(settings, "force_mode_y", defaults.force_mode_y)),
         disable_package_dealiasing = as_bool(get_config(settings, "disable_package_dealiasing", defaults.disable_package_dealiasing)),
+        initial_condition = as_string(get_config(settings, "initial_condition", defaults.initial_condition)),
         initial_velocity_rms = as_float(get_config(settings, "initial_velocity_rms", defaults.initial_velocity_rms)),
         initial_modes = as_int(get_config(settings, "initial_modes", defaults.initial_modes)),
         fixed_dt = as_float(get_config(settings, "fixed_dt", defaults.fixed_dt)),
@@ -484,6 +539,7 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
         force_amplitude = length(positionals) >= 3 ? parse(Float64, positionals[3]) : cfg.force_amplitude,
         force_mode_y = cfg.force_mode_y,
         disable_package_dealiasing = cfg.disable_package_dealiasing,
+        initial_condition = cfg.initial_condition,
         initial_velocity_rms = cfg.initial_velocity_rms,
         initial_modes = cfg.initial_modes,
         fixed_dt = length(positionals) >= 6 ? parse(Float64, positionals[6]) : cfg.fixed_dt,

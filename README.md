@@ -65,6 +65,7 @@ Important defaults:
 | MHDFlows z embedding | `nz = 2` |
 | Athena z embedding | `nx3 = 1` |
 | Force | `f_x = 0.1 sin(4 pi y), f_y = 0, f_z = 0` |
+| Initial condition | `fourier_divfree` |
 | Reynolds number | `1e6` |
 | Viscosity | `1e-6` |
 | End time | `5.0` |
@@ -90,6 +91,13 @@ outputs/athena/<case-tag>/
 For the Athena low-Mach approximation, `athena_iso_sound_speed` controls how
 close the compressible run stays to incompressible behavior. Larger values
 reduce density variation but also reduce Athena's CFL timestep.
+
+`initial_condition = "grid_noise"` is also available for both backends. It sets
+independent centered random `v_x` and `v_y` values at each `(x, y)` point,
+copies them through the degenerate z direction, and normalizes the resulting
+field to `initial_velocity_rms`. This option is deliberately simple and is not
+divergence-free. Non-default initial conditions are included in the case tag,
+for example `_ICgridnoise`, to avoid reusing data from a different setup.
 
 ## Run
 

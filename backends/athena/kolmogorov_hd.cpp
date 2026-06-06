@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <sstream>
+#include <string>
 
 #include "../athena.hpp"
 #include "../athena_arrays.hpp"
@@ -26,6 +27,7 @@ Real force_amplitude;
 Real force_mode_y;
 Real initial_velocity_rms;
 Real iso_sound_speed;
+std::string initial_condition;
 int initial_modes;
 int random_seed;
 
@@ -37,6 +39,10 @@ Real UnitPhase(int seed, int mx, int my, int which) {
 
 Real SignedCoeff(int seed, int mx, int my) {
   return UnitPhase(seed, mx, my, 0) - 0.5;
+}
+
+Real CenteredNoise(int seed, int i, int j, int which) {
+  return 2.0 * UnitPhase(seed, i, j, which) - 1.0;
 }
 
 Real SineForce(MeshBlock *pmb, Real x2) {
@@ -216,6 +222,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   force_amplitude = pin->GetOrAddReal("problem", "force_amplitude", 0.1);
   force_mode_y = pin->GetOrAddReal("problem", "force_mode_y", 2.0);
+  initial_condition = pin->GetOrAddString("problem", "initial_condition", "fourier_divfree");
   initial_velocity_rms = pin->GetOrAddReal("problem", "initial_velocity_rms", 1.0e-3);
   iso_sound_speed = pin->GetOrAddReal("hydro", "iso_sound_speed", 10.0);
   initial_modes = pin->GetOrAddInteger("problem", "initial_modes", 4);
@@ -241,8 +248,27 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   const Real gm1 = gamma - 1.0;
   const Real lx = pmy_mesh->mesh_size.x1max - pmy_mesh->mesh_size.x1min;
   const Real ly = pmy_mesh->mesh_size.x2max - pmy_mesh->mesh_size.x2min;
-  Real sum_speed2 = 0.0;
+  Real sum_vx = 0.0;
+  Real sum_vy = 0.0;
   int ncell = 0;
+  bool use_grid_noise = false;
+  bool use_fourier_divfree = false;
+
+  if (initial_condition == "grid_noise" || initial_condition == "grid-noise"
+      || initial_condition == "noise") {
+    use_grid_noise = true;
+  } else if (initial_condition == "fourier_divfree"
+             || initial_condition == "fourier-divfree"
+             || initial_condition == "divfree"
+             || initial_condition == "divergence_free") {
+    use_fourier_divfree = true;
+  } else {
+    std::stringstream msg;
+    msg << "### FATAL ERROR in kolmogorov_hd.cpp ProblemGenerator" << std::endl
+        << "initial_condition must be 'fourier_divfree' or 'grid_noise'; got '"
+        << initial_condition << "'" << std::endl;
+    ATHENA_ERROR(msg);
+  }
 
   for (int k = ks; k <= ke; ++k) {
     for (int j = js; j <= je; ++j) {
@@ -252,16 +278,25 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         Real vx = 0.0;
         Real vy = 0.0;
 
-        for (int mx = 1; mx <= initial_modes; ++mx) {
-          for (int my = 1; my <= initial_modes; ++my) {
-            const Real kx = 2.0 * PI * static_cast<Real>(mx) / lx;
-            const Real ky = 2.0 * PI * static_cast<Real>(my) / ly;
-            const Real phase_x = 2.0 * PI * UnitPhase(random_seed, mx, my, 1);
-            const Real phase_y = 2.0 * PI * UnitPhase(random_seed, mx, my, 2);
-            const Real coeff = SignedCoeff(random_seed, mx, my)
-                               / std::sqrt(static_cast<Real>(mx * mx + my * my));
-            vx += coeff * ky * std::sin(kx * x + phase_x) * std::cos(ky * y + phase_y);
-            vy -= coeff * kx * std::cos(kx * x + phase_x) * std::sin(ky * y + phase_y);
+        if (use_grid_noise) {
+          int noise_i = static_cast<int>(std::floor((x / lx) * pmy_mesh->mesh_size.nx1)) + 1;
+          int noise_j = static_cast<int>(std::floor((y / ly) * pmy_mesh->mesh_size.nx2)) + 1;
+          noise_i = std::max(1, std::min(noise_i, pmy_mesh->mesh_size.nx1));
+          noise_j = std::max(1, std::min(noise_j, pmy_mesh->mesh_size.nx2));
+          vx = CenteredNoise(random_seed, noise_i, noise_j, 1);
+          vy = CenteredNoise(random_seed, noise_i, noise_j, 2);
+        } else if (use_fourier_divfree) {
+          for (int mx = 1; mx <= initial_modes; ++mx) {
+            for (int my = 1; my <= initial_modes; ++my) {
+              const Real kx = 2.0 * PI * static_cast<Real>(mx) / lx;
+              const Real ky = 2.0 * PI * static_cast<Real>(my) / ly;
+              const Real phase_x = 2.0 * PI * UnitPhase(random_seed, mx, my, 1);
+              const Real phase_y = 2.0 * PI * UnitPhase(random_seed, mx, my, 2);
+              const Real coeff = SignedCoeff(random_seed, mx, my)
+                                 / std::sqrt(static_cast<Real>(mx * mx + my * my));
+              vx += coeff * ky * std::sin(kx * x + phase_x) * std::cos(ky * y + phase_y);
+              vy -= coeff * kx * std::cos(kx * x + phase_x) * std::sin(ky * y + phase_y);
+            }
           }
         }
 
@@ -272,8 +307,27 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         if (NON_BAROTROPIC_EOS) {
           phydro->u(IEN, k, j, i) = pressure / gm1 + 0.5 * density * (SQR(vx) + SQR(vy));
         }
-        sum_speed2 += SQR(vx) + SQR(vy);
+        sum_vx += vx;
+        sum_vy += vy;
         ncell += 1;
+      }
+    }
+  }
+
+  const Real mean_vx = ncell > 0 ? sum_vx / ncell : 0.0;
+  const Real mean_vy = ncell > 0 ? sum_vy / ncell : 0.0;
+  Real sum_speed2 = 0.0;
+  for (int k = ks; k <= ke; ++k) {
+    for (int j = js; j <= je; ++j) {
+      for (int i = is; i <= ie; ++i) {
+        Real vx = phydro->u(IM1, k, j, i) / phydro->u(IDN, k, j, i) - mean_vx;
+        Real vy = phydro->u(IM2, k, j, i) / phydro->u(IDN, k, j, i) - mean_vy;
+        phydro->u(IM1, k, j, i) = phydro->u(IDN, k, j, i) * vx;
+        phydro->u(IM2, k, j, i) = phydro->u(IDN, k, j, i) * vy;
+        if (NON_BAROTROPIC_EOS) {
+          phydro->u(IEN, k, j, i) = pressure / gm1 + 0.5 * density * (SQR(vx) + SQR(vy));
+        }
+        sum_speed2 += SQR(vx) + SQR(vy);
       }
     }
   }

@@ -80,6 +80,16 @@ def float_tag(value: float) -> str:
     return f"{float(value):.4g}".replace("-", "m").replace(".", "p")
 
 
+def initial_condition_case_suffix(value: str) -> str:
+    mode = value.strip().lower()
+    if mode in {"fourier_divfree", "fourier-divfree", "divfree", "divergence_free"}:
+        return ""
+    if mode in {"grid_noise", "grid-noise", "noise"}:
+        return "_ICgridnoise"
+    sanitized = "".join(char for char in mode if char.isalnum())
+    return f"_IC{sanitized}"
+
+
 @dataclass(frozen=True)
 class AthenaConfig:
     output_root: Path
@@ -94,6 +104,7 @@ class AthenaConfig:
     viscosity: float
     force_amplitude: float
     force_mode_y: int
+    initial_condition: str
     initial_velocity_rms: float
     initial_modes: int
     end_time: float
@@ -122,6 +133,7 @@ class AthenaConfig:
         base = (
             f"{self.name}_n{self.nx}x{self.ny}_Re{float_tag(self.effective_reynolds)}"
             f"_A{float_tag(self.force_amplitude)}_k{self.force_mode_y}_T{float_tag(self.end_time)}"
+            f"{initial_condition_case_suffix(self.initial_condition)}"
         )
         return base if not self.tag_suffix else f"{base}_{self.tag_suffix}"
 
@@ -203,6 +215,7 @@ def config_from_sources(settings: dict, positionals: list[str]) -> AthenaConfig:
         viscosity=viscosity,
         force_amplitude=force_amplitude,
         force_mode_y=int(get_config(settings, "force_mode_y", 2)),
+        initial_condition=str(get_config(settings, "initial_condition", "fourier_divfree")),
         initial_velocity_rms=float(get_config(settings, "initial_velocity_rms", 1.0e-3)),
         initial_modes=int(get_config(settings, "initial_modes", 4)),
         end_time=end_time,
@@ -290,6 +303,7 @@ def write_metadata(cfg: AthenaConfig) -> Path:
         "force_amplitude": cfg.force_amplitude,
         "force_mode_y": cfg.force_mode_y,
         "force_form": "f_x = force_amplitude * sin(2*pi*force_mode_y*y/domain_length), f_y = 0, f_z = 0",
+        "initial_condition": cfg.initial_condition,
         "initial_velocity_rms": cfg.initial_velocity_rms,
         "initial_modes": cfg.initial_modes,
         "cfl_number": cfg.cfl_number,
@@ -380,6 +394,7 @@ density              = 1.0
 pressure             = 1.0
 force_amplitude      = {cfg.force_amplitude:.16g}
 force_mode_y         = {cfg.force_mode_y}
+initial_condition    = {cfg.initial_condition}
 initial_velocity_rms = {cfg.initial_velocity_rms:.16g}
 initial_modes        = {cfg.initial_modes}
 seed                 = {cfg.seed}
