@@ -304,8 +304,13 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         phydro->u(IM1, k, j, i) = density * vx;
         phydro->u(IM2, k, j, i) = density * vy;
         phydro->u(IM3, k, j, i) = 0.0;
+        phydro->w(IDN, k, j, i) = density;
+        phydro->w(IVX, k, j, i) = vx;
+        phydro->w(IVY, k, j, i) = vy;
+        phydro->w(IVZ, k, j, i) = 0.0;
         if (NON_BAROTROPIC_EOS) {
           phydro->u(IEN, k, j, i) = pressure / gm1 + 0.5 * density * (SQR(vx) + SQR(vy));
+          phydro->w(IPR, k, j, i) = pressure;
         }
         sum_vx += vx;
         sum_vy += vy;
@@ -324,8 +329,13 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         Real vy = phydro->u(IM2, k, j, i) / phydro->u(IDN, k, j, i) - mean_vy;
         phydro->u(IM1, k, j, i) = phydro->u(IDN, k, j, i) * vx;
         phydro->u(IM2, k, j, i) = phydro->u(IDN, k, j, i) * vy;
+        phydro->w(IDN, k, j, i) = phydro->u(IDN, k, j, i);
+        phydro->w(IVX, k, j, i) = vx;
+        phydro->w(IVY, k, j, i) = vy;
+        phydro->w(IVZ, k, j, i) = 0.0;
         if (NON_BAROTROPIC_EOS) {
           phydro->u(IEN, k, j, i) = pressure / gm1 + 0.5 * density * (SQR(vx) + SQR(vy));
+          phydro->w(IPR, k, j, i) = pressure;
         }
         sum_speed2 += SQR(vx) + SQR(vy);
       }
@@ -339,10 +349,15 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       for (int i = is; i <= ie; ++i) {
         phydro->u(IM1, k, j, i) *= scale;
         phydro->u(IM2, k, j, i) *= scale;
+        phydro->w(IDN, k, j, i) = phydro->u(IDN, k, j, i);
+        phydro->w(IVX, k, j, i) = phydro->u(IM1, k, j, i) / phydro->u(IDN, k, j, i);
+        phydro->w(IVY, k, j, i) = phydro->u(IM2, k, j, i) / phydro->u(IDN, k, j, i);
+        phydro->w(IVZ, k, j, i) = 0.0;
         if (NON_BAROTROPIC_EOS) {
           const Real vx = phydro->u(IM1, k, j, i) / phydro->u(IDN, k, j, i);
           const Real vy = phydro->u(IM2, k, j, i) / phydro->u(IDN, k, j, i);
           phydro->u(IEN, k, j, i) = pressure / gm1 + 0.5 * density * (SQR(vx) + SQR(vy));
+          phydro->w(IPR, k, j, i) = pressure;
         }
       }
     }
