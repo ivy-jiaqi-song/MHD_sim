@@ -8,8 +8,8 @@ function resolve_repo_path(path::AbstractString)
 end
 
 function default_config_path()
-    local_path = joinpath(repo_root(), "config.local.toml")
-    example_path = joinpath(repo_root(), "config.example.toml")
+    local_path = joinpath(repo_root(), "config.kolmogorov.local.toml")
+    example_path = joinpath(repo_root(), "config.kolmogorov.example.toml")
     return isfile(local_path) ? local_path : example_path
 end
 
@@ -27,7 +27,7 @@ function mhdflows_project_path(settings)
     configured = String(get_config(settings, "mhdflows_project", "MHDFlows_dev-main"))
     path = get(ENV, "MHDFLOWS_PROJECT", configured)
     resolved = resolve_repo_path(path)
-    isdir(resolved) || error("MHDFlows project not found at $(resolved). Set mhdflows_project in config.local.toml or set MHDFLOWS_PROJECT.")
+    isdir(resolved) || error("MHDFlows project not found at $(resolved). Set mhdflows_project in config.kolmogorov.local.toml or set MHDFLOWS_PROJECT.")
     isfile(joinpath(resolved, "Project.toml")) || error("MHDFlows project is missing Project.toml: $(resolved)")
     return resolved
 end

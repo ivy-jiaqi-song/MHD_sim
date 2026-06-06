@@ -24,6 +24,7 @@ cfg.snapshot_dt > 0 || error("snapshot_dt must be positive")
 cfg.diagnostics_sample_every > 0 || error("diagnostics_sample_every must be positive")
 cfg.nz >= 2 && iseven(cfg.nz) || error("MHDFlows/FourierFlows requires even nz; use nz = 2 for a degenerate 2D run")
 cfg.fixed_dt > 0 || error("Use a positive fixed_dt for this high-Reynolds-number Kolmogorov run")
+warn_reynolds_viscosity_mismatch(cfg)
 
 case_dir = kolmogorov_case_root(cfg)
 csv_path = joinpath(kolmogorov_analysis_root(cfg), "energy_enstrophy_history.csv")
@@ -40,6 +41,7 @@ if cfg.reuse_existing_data && kolmogorov_case_has_data(case_dir)
         include(joinpath(@__DIR__, "plot_kolmogorov_hd.jl"))
         paths = plot_kolmogorov_hd(case_dir)
         println("Vorticity snapshots figure: $(paths.vorticity)")
+        println("v_y vs v_x snapshots figure: $(paths.velocity_phase)")
         println("Energy/enstrophy figure: $(paths.history)")
         println("Final spectrum figure: $(paths.spectrum)")
     else
@@ -98,6 +100,7 @@ if cfg.plot_after_run
     include(joinpath(@__DIR__, "plot_kolmogorov_hd.jl"))
     paths = plot_kolmogorov_hd(case_dir)
     println("Vorticity snapshots figure: $(paths.vorticity)")
+    println("v_y vs v_x snapshots figure: $(paths.velocity_phase)")
     println("Energy/enstrophy figure: $(paths.history)")
     println("Final spectrum figure: $(paths.spectrum)")
 end

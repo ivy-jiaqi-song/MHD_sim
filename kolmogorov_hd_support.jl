@@ -71,6 +71,18 @@ end
 
 effective_reynolds(cfg::KolmogorovHDConfig) = cfg.viscosity > 0 ? 1.0 / cfg.viscosity : Inf
 
+function warn_reynolds_viscosity_mismatch(cfg::KolmogorovHDConfig)
+    if cfg.reynolds_number <= 0 || cfg.viscosity <= 0
+        return nothing
+    end
+
+    effective_re = effective_reynolds(cfg)
+    if !isapprox(effective_re, cfg.reynolds_number; rtol = 1.0e-8, atol = 0.0)
+        @warn "Configured reynolds_number does not match viscosity; the HD solver uses viscosity, so effective Re is 1 / viscosity" configured_reynolds_number = cfg.reynolds_number viscosity = cfg.viscosity effective_reynolds = effective_re
+    end
+    return nothing
+end
+
 function kolmogorov_case_tag(cfg::KolmogorovHDConfig)
     base = "$(cfg.name)_n$(cfg.nx)x$(cfg.ny)_Re$(float_tag(effective_reynolds(cfg)))_A$(float_tag(cfg.force_amplitude))_k$(cfg.force_mode_y)_T$(float_tag(cfg.end_time))"
     return isempty(cfg.tag_suffix) ? base : "$(base)_$(cfg.tag_suffix)"

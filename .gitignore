@@ -1,7 +1,7 @@
 # Simulation outputs can be regenerated and may become large.
 /outputs/
 
-# Background-run logs and PID files.
+# Run logs.
 /logs/
 
 # External solver checkout. Clone or unpack MHDFlows here locally.
@@ -11,8 +11,8 @@
 task*.md
 
 # Machine-specific run settings.
-config.local.toml
 config.kolmogorov.local.toml
+/configs/
 
 # Julia-generated local files.
 *.ji

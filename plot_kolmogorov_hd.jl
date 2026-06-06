@@ -168,6 +168,51 @@ function plot_vorticity_snapshots(case_dir::AbstractString; max_panels::Int = 4)
     return output_path
 end
 
+function velocity_phase_components(snapshot)
+    vx = vec(mean_xy_component(snapshot.ux))
+    vy = vec(mean_xy_component(snapshot.uy))
+    return vx, vy
+end
+
+function plot_velocity_phase_snapshots(case_dir::AbstractString; max_panels::Int = 4)
+    paths = snapshot_paths(case_dir)
+    selected = paths[selected_snapshot_indices(length(paths), max_panels)]
+    snapshots = read_velocity_snapshot.(selected)
+    components = velocity_phase_components.(snapshots)
+    vmax = maximum(max(maximum(abs, vx), maximum(abs, vy)) for (vx, vy) in components)
+    vmax = vmax > 0 ? vmax : 1.0
+
+    figure_dir = joinpath(case_dir, "figures")
+    mkpath(figure_dir)
+    output_path = joinpath(figure_dir, "vy_vs_vx_snapshots.png")
+
+    figure, axes = PyPlot.subplots(1, length(selected); figsize = (4 * length(selected) + 0.6, 3.6), squeeze = false)
+    axes_vec = vec(axes)
+    for (axis, snapshot, (vx, vy)) in zip(axes_vec, snapshots, components)
+        axis.scatter(vx, vy;
+            s = 2.0,
+            color = "#1f77b4",
+            alpha = 0.35,
+            linewidths = 0.0,
+            rasterized = true,
+        )
+        axis.axhline(0.0; color = "0.75", linewidth = 0.8)
+        axis.axvline(0.0; color = "0.75", linewidth = 0.8)
+        axis.set_xlim(-vmax, vmax)
+        axis.set_ylim(-vmax, vmax)
+        axis.set_aspect("equal", adjustable = "box")
+        axis.set_title(@sprintf("t = %.3f", snapshot.time))
+        axis.set_xlabel(raw"$v_x$")
+        axis.set_ylabel(raw"$v_y$")
+        axis.grid(; alpha = 0.18)
+    end
+    figure.suptitle(raw"Kolmogorov HD $v_y$ vs $v_x$ snapshots", y = 0.94)
+    figure.tight_layout(rect = [0, 0, 1, 0.9])
+    figure.savefig(output_path; dpi = 180, bbox_inches = "tight")
+    PyPlot.close(figure)
+    return output_path
+end
+
 function plot_energy_enstrophy_history(case_dir::AbstractString)
     csv_path = joinpath(case_dir, "analysis", "energy_enstrophy_history.csv")
     isfile(csv_path) || error("Kolmogorov history CSV does not exist: $(csv_path)")
@@ -268,6 +313,7 @@ function plot_kolmogorov_hd(case_dir::AbstractString)
     isfile(joinpath(case_dir, "analysis", "case_metadata.toml")) || error("Case metadata does not exist: $(joinpath(case_dir, "analysis", "case_metadata.toml"))")
     return (
         vorticity = plot_vorticity_snapshots(case_dir),
+        velocity_phase = plot_velocity_phase_snapshots(case_dir),
         history = plot_energy_enstrophy_history(case_dir),
         spectrum = plot_final_energy_spectrum(case_dir),
     )
@@ -279,6 +325,7 @@ if is_plot_entrypoint
     paths = plot_kolmogorov_hd(case_dir)
     println("Config file: $(config_path)")
     println("Vorticity snapshots figure: $(paths.vorticity)")
+    println("v_y vs v_x snapshots figure: $(paths.velocity_phase)")
     println("Energy/enstrophy figure: $(paths.history)")
     println("Final spectrum figure: $(paths.spectrum)")
 end
