@@ -2,7 +2,11 @@
 # The local copy is ignored by Git.
 
 mhdflows_project = "MHDFlows_dev-main"
+athena_project = "../athena"
+athena_work_root = "athena_work"
 output_root = "outputs"
+output_by_backend = true
+backend = "mhdflows" # mhdflows or athena; run.sh can override this.
 device = "auto" # auto, cpu, or gpu
 
 name = "kolmogorov_hd"
@@ -45,3 +49,14 @@ reuse_existing_data = true
 
 seed = 1234
 tag_suffix = ""
+
+# Athena++ backend knobs. Athena++ is a compressible hydro code; this backend uses
+# non-magnetic low-Mach isothermal hydro with constant viscosity as a sanity-check proxy.
+# Raising c_s suppresses density variation but reduces the CFL timestep.
+athena_iso_sound_speed = 10.0
+athena_cfl_number = 0.3
+athena_configure_args = ["--eos=isothermal", "--flux=hlle"]
+athena_make_jobs = 4
+athena_prepare_only = false
+athena_skip_build = false
+athena_skip_run = false

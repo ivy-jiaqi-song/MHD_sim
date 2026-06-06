@@ -7,6 +7,9 @@
 # External solver checkout. Clone or unpack MHDFlows here locally.
 /MHDFlows_dev-main/
 
+# Ignored Athena++ working copy used by the Athena backend runner.
+/athena_work/
+
 # Local task notes used for Codex communication.
 task*.md
 

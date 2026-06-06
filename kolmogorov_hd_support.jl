@@ -7,6 +7,7 @@ using Statistics
 using TOML
 
 Base.@kwdef struct KolmogorovHDConfig
+    backend::String = "mhdflows"
     output_root::String = joinpath(@__DIR__, "outputs")
     device::String = "auto"
     name::String = "kolmogorov_hd"
@@ -384,6 +385,8 @@ end
 function write_kolmogorov_metadata(path::String, cfg::KolmogorovHDConfig, device_label::String)
     metadata = Dict(
         "name" => cfg.name,
+        "backend" => cfg.backend,
+        "package" => "MHDFlows",
         "description" => cfg.description,
         "device" => device_label,
         "device_request" => cfg.device,
@@ -436,7 +439,8 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
     viscosity = as_float(get_config(settings, "viscosity", 1.0 / re_configured))
 
     cfg = KolmogorovHDConfig(;
-        output_root = configured_output_root(settings),
+        backend = "mhdflows",
+        output_root = configured_output_root(settings, "mhdflows"),
         device = as_string(get_config(settings, "device", defaults.device)),
         name = as_string(get_config(settings, "name", defaults.name)),
         description = as_string(get_config(settings, "description", defaults.description)),
@@ -466,6 +470,7 @@ function kolmogorov_config_from_sources(settings, positionals::Vector{String})
     isempty(positionals) && return cfg
     return KolmogorovHDConfig(;
         output_root = cfg.output_root,
+        backend = cfg.backend,
         device = cfg.device,
         name = cfg.name,
         description = cfg.description,

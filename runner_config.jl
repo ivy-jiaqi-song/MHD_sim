@@ -23,6 +23,11 @@ function get_config(settings, key::String, default)
     return haskey(settings, key) ? settings[key] : default
 end
 
+function config_bool(value)
+    value isa Bool && return value
+    return parse(Bool, lowercase(String(value)))
+end
+
 function mhdflows_project_path(settings)
     configured = String(get_config(settings, "mhdflows_project", "MHDFlows_dev-main"))
     path = get(ENV, "MHDFLOWS_PROJECT", configured)
@@ -32,8 +37,10 @@ function mhdflows_project_path(settings)
     return resolved
 end
 
-function configured_output_root(settings)
-    return resolve_repo_path(String(get_config(settings, "output_root", "outputs")))
+function configured_output_root(settings, backend::AbstractString = "mhdflows")
+    root = resolve_repo_path(String(get_config(settings, "output_root", "outputs")))
+    by_backend = config_bool(get_config(settings, "output_by_backend", true))
+    return by_backend && !isempty(backend) ? joinpath(root, lowercase(String(backend))) : root
 end
 
 function split_config_args(args::Vector{String})
