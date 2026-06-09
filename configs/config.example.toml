@@ -16,7 +16,7 @@ device = "auto"
 apply_cpu_compatibility_shim = true
 
 name = "compressible_mhd_baseline"
-description = "Compressible MHD baseline with snapshots and energy-history diagnostics"
+description = "Compressible MHD baseline with snapshots and energy-history support metrics"
 tag_suffix = ""
 
 nx = 128

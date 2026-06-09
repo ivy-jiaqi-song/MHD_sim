@@ -31,10 +31,15 @@ println("Running compressible MHD simulation")
 println("Config file: $(config_path)")
 println("Case directory: $(case_dir)")
 
-history = EnergyHistory(cfg.energy_sample_every, cfg.sound_speed)
+history = EnergyHistory(cfg.energy_sample_every)
+snapshot_diagnostics = SnapshotDiagnosticsHistory(cfg.snapshot_dt, cfg.sound_speed)
+device_label_ref = Ref("")
 callback_energy = make_history_callback(history, csv_path)
-prob, device_label = build_problem(cfg; usr_func = [callback_energy])
-write_case_metadata(metadata_path, cfg, device_label)
+callback_snapshots = make_snapshot_metadata_callback(snapshot_diagnostics, metadata_path, cfg, device_label_ref)
+prob, device_label = build_problem(cfg; usr_func = [callback_energy, callback_snapshots])
+device_label_ref[] = device_label
+initialize_snapshot_diagnostics!(snapshot_diagnostics, prob)
+write_case_metadata(metadata_path, cfg, device_label; snapshot_diagnostics = snapshot_diagnostics)
 
 println("Device: $(device_label)")
 println("Resolution: $(cfg.nx)^3")
@@ -60,14 +65,16 @@ MHDFlows.TimeIntegrator!(prob, cfg.end_time, cfg.max_steps;
 
 sample_energy!(history, prob; force = true)
 write_energy_csv(csv_path, history)
+write_case_metadata(metadata_path, cfg, device_label; snapshot_diagnostics = snapshot_diagnostics)
 
 stats = late_window_stats(history, cfg)
 println("Energy history CSV: $(csv_path)")
+println("Case metadata TOML: $(metadata_path)")
 println("Snapshot directory: $(snapshot_root(cfg))")
-if !isempty(history.times)
-    last_sample = lastindex(history.times)
-    println("Final sonic Mach: $(round(history.sonic_mach[last_sample], digits = 4))")
-    println("Final Alfven Mach mean/total/fluct: $(round(history.alfven_mach_mean[last_sample], digits = 4)), $(round(history.alfven_mach_total[last_sample], digits = 4)), $(round(history.alfven_mach_fluct[last_sample], digits = 4))")
+if !isempty(snapshot_diagnostics.times)
+    last_snapshot = lastindex(snapshot_diagnostics.times)
+    println("Last snapshot sonic Mach: $(round(snapshot_diagnostics.sonic_mach[last_snapshot], digits = 4))")
+    println("Last snapshot Alfven Mach mean/total/fluct: $(round(snapshot_diagnostics.alfven_mach_mean[last_snapshot], digits = 4)), $(round(snapshot_diagnostics.alfven_mach_total[last_snapshot], digits = 4)), $(round(snapshot_diagnostics.alfven_mach_fluct[last_snapshot], digits = 4))")
 end
 if stats === nothing
     println("Stability heuristic: insufficient samples")

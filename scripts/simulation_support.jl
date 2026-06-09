@@ -13,7 +13,7 @@ Base.@kwdef struct SimulationConfig
     device::String = "auto"
     apply_cpu_compatibility_shim::Bool = true
     name::String = "compressible_mhd_baseline"
-    description::String = "Compressible MHD baseline with snapshots and energy-history diagnostics"
+    description::String = "Compressible MHD baseline with snapshots and energy-history support metrics"
     nx::Int = 128
     box_size::Float64 = 2pi
     float_type::DataType = Float32
@@ -39,7 +39,6 @@ end
 
 mutable struct EnergyHistory
     sample_every::Int
-    sound_speed::Float64
     times::Vector{Float64}
     rho_mean::Vector{Float64}
     kinetic::Vector{Float64}
@@ -47,6 +46,28 @@ mutable struct EnergyHistory
     magnetic_fluct::Vector{Float64}
     total_resolved::Vector{Float64}
     fluct_total::Vector{Float64}
+end
+
+EnergyHistory(sample_every::Int) = EnergyHistory(
+    sample_every,
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+    Float64[],
+)
+
+mutable struct SnapshotDiagnosticsHistory
+    sound_speed::Float64
+    snapshot_dt::Float64
+    next_time::Float64
+    next_file_number::Int
+    file_numbers::Vector{Int}
+    files::Vector{String}
+    times::Vector{Float64}
+    rho_mean::Vector{Float64}
     velocity_rms::Vector{Float64}
     velocity_fluct_rms::Vector{Float64}
     sonic_mach::Vector{Float64}
@@ -62,14 +83,13 @@ mutable struct EnergyHistory
     alfven_mach_fluct::Vector{Float64}
 end
 
-EnergyHistory(sample_every::Int, sound_speed::Real = SimulationConfig().sound_speed) = EnergyHistory(
-    sample_every,
+SnapshotDiagnosticsHistory(snapshot_dt::Real, sound_speed::Real) = SnapshotDiagnosticsHistory(
     Float64(sound_speed),
-    Float64[],
-    Float64[],
-    Float64[],
-    Float64[],
-    Float64[],
+    Float64(snapshot_dt),
+    Float64(snapshot_dt),
+    1,
+    Int[],
+    String[],
     Float64[],
     Float64[],
     Float64[],
@@ -265,6 +285,34 @@ end
 
 safe_ratio(numerator::Real, denominator::Real) = isfinite(Float64(denominator)) && Float64(denominator) > 0 ? Float64(numerator) / Float64(denominator) : NaN
 
+function mhd_energy_diagnostics(rho, ux, uy, uz, bx, by, bz)
+    rho_mean = Float64(mean(rho))
+
+    u2 = ux .^ 2 .+ uy .^ 2 .+ uz .^ 2
+    kinetic_density = Float64(mean(rho .* u2))
+
+    bx_mean = Float64(mean(bx))
+    by_mean = Float64(mean(by))
+    bz_mean = Float64(mean(bz))
+    b2 = bx .^ 2 .+ by .^ 2 .+ bz .^ 2
+    db2 = (bx .- bx_mean) .^ 2 .+ (by .- by_mean) .^ 2 .+ (bz .- bz_mean) .^ 2
+    magnetic_total_density = Float64(mean(b2))
+    magnetic_fluct_density = Float64(mean(db2))
+
+    kinetic = 0.5 * kinetic_density
+    magnetic_total = 0.5 * magnetic_total_density
+    magnetic_fluct = 0.5 * magnetic_fluct_density
+
+    return (
+        rho_mean = rho_mean,
+        kinetic = kinetic,
+        magnetic_total = magnetic_total,
+        magnetic_fluct = magnetic_fluct,
+        total_resolved = kinetic + magnetic_total,
+        fluct_total = kinetic + magnetic_fluct,
+    )
+end
+
 function mhd_field_diagnostics(rho, ux, uy, uz, bx, by, bz, sound_speed::Real)
     rho_mean = Float64(mean(rho))
     sqrt_rho_mean = rho_mean > 0 ? sqrt(rho_mean) : NaN
@@ -342,7 +390,7 @@ function sample_energy!(history::EnergyHistory, prob; force::Bool = false)
     by = Array(prob.vars.by)
     bz = Array(prob.vars.bz)
 
-    diagnostics = mhd_field_diagnostics(rho, ux, uy, uz, bx, by, bz, history.sound_speed)
+    diagnostics = mhd_energy_diagnostics(rho, ux, uy, uz, bx, by, bz)
 
     push!(history.times, current_time)
     push!(history.rho_mean, diagnostics.rho_mean)
@@ -351,6 +399,52 @@ function sample_energy!(history::EnergyHistory, prob; force::Bool = false)
     push!(history.magnetic_fluct, diagnostics.magnetic_fluct)
     push!(history.total_resolved, diagnostics.total_resolved)
     push!(history.fluct_total, diagnostics.fluct_total)
+    return true
+end
+
+function write_energy_csv(path::String, history::EnergyHistory)
+    open(path, "w") do io
+        println(io, "time,rho_mean,kinetic,magnetic_total,magnetic_fluct,total_resolved,fluct_total")
+        for i in eachindex(history.times)
+            println(io,
+                "$(history.times[i]),$(history.rho_mean[i]),$(history.kinetic[i]),$(history.magnetic_total[i]),$(history.magnetic_fluct[i]),$(history.total_resolved[i]),$(history.fluct_total[i])")
+        end
+    end
+    return path
+end
+
+function make_history_callback(history::EnergyHistory, csv_path::String)
+    return function (prob)
+        if sample_energy!(history, prob)
+            write_energy_csv(csv_path, history)
+        end
+        return nothing
+    end
+end
+
+snapshot_relative_path(file_number::Integer) = "snapshots/state_t_$(lpad(string(file_number), 4, '0')).h5"
+
+function record_snapshot_diagnostics!(history::SnapshotDiagnosticsHistory, prob, file_number::Integer)
+    if !isempty(history.file_numbers) && history.file_numbers[end] == Int(file_number)
+        return false
+    end
+
+    sync_real_state!(prob)
+
+    rho = Array(prob.vars.ρ)
+    ux = Array(prob.vars.ux)
+    uy = Array(prob.vars.uy)
+    uz = Array(prob.vars.uz)
+    bx = Array(prob.vars.bx)
+    by = Array(prob.vars.by)
+    bz = Array(prob.vars.bz)
+
+    diagnostics = mhd_field_diagnostics(rho, ux, uy, uz, bx, by, bz, history.sound_speed)
+
+    push!(history.file_numbers, Int(file_number))
+    push!(history.files, snapshot_relative_path(file_number))
+    push!(history.times, Float64(prob.clock.t))
+    push!(history.rho_mean, diagnostics.rho_mean)
     push!(history.velocity_rms, diagnostics.velocity_rms)
     push!(history.velocity_fluct_rms, diagnostics.velocity_fluct_rms)
     push!(history.sonic_mach, diagnostics.sonic_mach)
@@ -367,21 +461,53 @@ function sample_energy!(history::EnergyHistory, prob; force::Bool = false)
     return true
 end
 
-function write_energy_csv(path::String, history::EnergyHistory)
-    open(path, "w") do io
-        println(io, "time,rho_mean,kinetic,magnetic_total,magnetic_fluct,total_resolved,fluct_total,velocity_rms,velocity_fluct_rms,sonic_mach,sonic_mach_total,magnetic_mean_strength,magnetic_rms_total,magnetic_rms_fluct,alfven_speed_mean,alfven_speed_total,alfven_speed_fluct,alfven_mach_mean,alfven_mach_total,alfven_mach_fluct")
-        for i in eachindex(history.times)
-            println(io,
-                "$(history.times[i]),$(history.rho_mean[i]),$(history.kinetic[i]),$(history.magnetic_total[i]),$(history.magnetic_fluct[i]),$(history.total_resolved[i]),$(history.fluct_total[i]),$(history.velocity_rms[i]),$(history.velocity_fluct_rms[i]),$(history.sonic_mach[i]),$(history.sonic_mach_total[i]),$(history.magnetic_mean_strength[i]),$(history.magnetic_rms_total[i]),$(history.magnetic_rms_fluct[i]),$(history.alfven_speed_mean[i]),$(history.alfven_speed_total[i]),$(history.alfven_speed_fluct[i]),$(history.alfven_mach_mean[i]),$(history.alfven_mach_total[i]),$(history.alfven_mach_fluct[i])")
-        end
-    end
-    return path
+function initialize_snapshot_diagnostics!(history::SnapshotDiagnosticsHistory, prob)
+    record_snapshot_diagnostics!(history, prob, 0)
+    history.next_time = Float64(prob.clock.t) + history.snapshot_dt
+    history.next_file_number = 1
+    return nothing
 end
 
-function make_history_callback(history::EnergyHistory, csv_path::String)
+function record_due_snapshot_diagnostics!(history::SnapshotDiagnosticsHistory, prob)
+    if Float64(prob.clock.t) >= history.next_time
+        recorded = record_snapshot_diagnostics!(history, prob, history.next_file_number)
+        history.next_time += history.snapshot_dt
+        history.next_file_number += 1
+        return recorded
+    end
+    return false
+end
+
+function snapshot_diagnostics_rows(history::SnapshotDiagnosticsHistory)
+    rows = Vector{Dict{String, Any}}()
+    for i in eachindex(history.times)
+        push!(rows, Dict{String, Any}(
+            "file" => history.files[i],
+            "file_number" => history.file_numbers[i],
+            "time" => history.times[i],
+            "rho_mean" => history.rho_mean[i],
+            "velocity_rms" => history.velocity_rms[i],
+            "velocity_fluct_rms" => history.velocity_fluct_rms[i],
+            "sonic_mach" => history.sonic_mach[i],
+            "sonic_mach_total" => history.sonic_mach_total[i],
+            "magnetic_mean_strength" => history.magnetic_mean_strength[i],
+            "magnetic_rms_total" => history.magnetic_rms_total[i],
+            "magnetic_rms_fluct" => history.magnetic_rms_fluct[i],
+            "alfven_speed_mean" => history.alfven_speed_mean[i],
+            "alfven_speed_total" => history.alfven_speed_total[i],
+            "alfven_speed_fluct" => history.alfven_speed_fluct[i],
+            "alfven_mach_mean" => history.alfven_mach_mean[i],
+            "alfven_mach_total" => history.alfven_mach_total[i],
+            "alfven_mach_fluct" => history.alfven_mach_fluct[i],
+        ))
+    end
+    return rows
+end
+
+function make_snapshot_metadata_callback(history::SnapshotDiagnosticsHistory, metadata_path::String, cfg::SimulationConfig, device_label_ref::Base.RefValue{String})
     return function (prob)
-        if sample_energy!(history, prob)
-            write_energy_csv(csv_path, history)
+        if record_due_snapshot_diagnostics!(history, prob)
+            write_case_metadata(metadata_path, cfg, device_label_ref[]; snapshot_diagnostics = history)
         end
         return nothing
     end
@@ -411,7 +537,7 @@ function stability_detected(history::EnergyHistory, cfg::SimulationConfig)
     return stats.band <= cfg.stability_rel_band && abs(stats.signed_change) <= cfg.stability_abs_change
 end
 
-function write_case_metadata(path::String, cfg::SimulationConfig, device_label::String)
+function write_case_metadata(path::String, cfg::SimulationConfig, device_label::String; snapshot_diagnostics = nothing)
     metadata = Dict(
         "name" => cfg.name,
         "description" => cfg.description,
@@ -440,6 +566,9 @@ function write_case_metadata(path::String, cfg::SimulationConfig, device_label::
         "apply_cpu_compatibility_shim" => cfg.apply_cpu_compatibility_shim,
         "seed" => cfg.seed,
     )
+    if snapshot_diagnostics !== nothing
+        metadata["snapshot_diagnostics"] = snapshot_diagnostics_rows(snapshot_diagnostics)
+    end
     open(path, "w") do io
         TOML.print(io, metadata; sorted = true)
     end

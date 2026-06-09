@@ -3,7 +3,7 @@
 This workspace is a compact launcher for a three-dimensional, isothermal,
 compressible MHD turbulence simulation. It expects a local checkout of the
 external `MHDFlows` package and writes snapshots plus an energy-history
-stability diagnostic.
+stability support file.
 
 The activator intentionally does not contain mode decomposition. Snapshots are
 kept as HDF5 files so a separate analysis project can consume them later.
@@ -139,10 +139,17 @@ snapshots/state_t_*.h5
 The CSV is checkpointed while the simulation runs. The PNG is generated after
 integration finishes and compares kinetic energy, fluctuating magnetic energy,
 and their sum. Its lower panel normalizes each curve against the final 25% of
-the sampled time range to make late-time stability easier to inspect.
+the sampled time range to make late-time stability easier to inspect. The CSV
+is intentionally limited to energy-support columns: `time`, `rho_mean`,
+`kinetic`, `magnetic_total`, `magnetic_fluct`, `total_resolved`, and
+`fluct_total`.
 
-`energy_history.csv` also records basic Mach diagnostics for follow-up
-statistics. The runner uses the density-weighted turbulent velocity
+Snapshot-only Mach diagnostics are written in `analysis/case_metadata.toml`
+under `[[snapshot_diagnostics]]`. Rows correspond to the HDF5 snapshots,
+including `snapshots/state_t_0000.h5`, so follow-up particle-transport
+analysis can select one snapshot and use diagnostics from the same time.
+
+The runner uses the density-weighted turbulent velocity
 
 ```text
 u_rms = sqrt(<rho |u - <u>_rho|^2> / <rho>)
@@ -165,25 +172,22 @@ M_A(B_ref) = u_rms / v_A(B_ref)
 This matches the code normalization used by the existing magnetic energy
 diagnostic, `0.5 * <|B|^2>`.
 
-The CSV records three useful choices for `B_ref`:
+The snapshot table records three useful choices for `B_ref`:
 
-| Column | Magnetic reference |
+| Metadata field | Magnetic reference |
 | --- | --- |
-| `alfven_mach_mean` | `|<B>|`, the guide/mean field |
-| `alfven_mach_total` | `sqrt(<|B|^2>)`, mean plus fluctuations |
-| `alfven_mach_fluct` | `sqrt(<|B - <B>|^2>)`, fluctuations only |
+| `alfven_mach_mean` | `norm(mean(B))`, the guide/mean field |
+| `alfven_mach_total` | `rms(B)`, mean plus fluctuations |
+| `alfven_mach_fluct` | `rms(B - mean(B))`, fluctuations only |
 
-It also records `velocity_rms`, `velocity_fluct_rms`, `sonic_mach`,
-`sonic_mach_total`, `magnetic_mean_strength`, `magnetic_rms_total`,
-`magnetic_rms_fluct`, and the corresponding Alfven speeds. `NaN` means the
-chosen magnetic reference is zero, for example the fluctuating field at the
-initial snapshot.
-
-Existing `.h5` snapshots are sufficient for post-processing these diagnostics:
-they contain `gas_density`, `i_velocity`, `j_velocity`, `k_velocity`,
-`i_mag_field`, `j_mag_field`, `k_mag_field`, and `time`. For sonic Mach, also
-read `sound_speed` from `analysis/case_metadata.toml` or from the config used
-for that run.
+Each row also records `file`, `file_number`, `time`, `rho_mean`,
+`velocity_rms`, `velocity_fluct_rms`, `sonic_mach`, `sonic_mach_total`,
+`magnetic_mean_strength`, `magnetic_rms_total`, `magnetic_rms_fluct`, and the
+corresponding Alfven speeds. `NaN` means the chosen magnetic reference is zero,
+for example the fluctuating field at the initial snapshot. Existing `.h5`
+snapshots contain `gas_density`, `i_velocity`, `j_velocity`, `k_velocity`,
+`i_mag_field`, `j_mag_field`, `k_mag_field`, and `time`, so these diagnostics
+can still be regenerated from snapshots if needed.
 
 To compare runs, change the input parameters and let the diagnostics measure
 the resulting state. `sound_speed` directly changes `M_s`; larger `c_s` lowers
