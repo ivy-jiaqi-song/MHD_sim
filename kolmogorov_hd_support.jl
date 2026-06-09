@@ -105,14 +105,32 @@ kolmogorov_case_root(cfg::KolmogorovHDConfig) = joinpath(cfg.output_root, kolmog
 kolmogorov_analysis_root(cfg::KolmogorovHDConfig) = joinpath(kolmogorov_case_root(cfg), "analysis")
 kolmogorov_snapshot_root(cfg::KolmogorovHDConfig) = joinpath(kolmogorov_case_root(cfg), "snapshots")
 
-function kolmogorov_case_has_data(case_dir::AbstractString)
+function last_csv_time(path::AbstractString)
+    last_time = NaN
+    for line in eachline(path)
+        stripped = strip(line)
+        if isempty(stripped) || startswith(stripped, "time")
+            continue
+        end
+        last_time = parse(Float64, split(stripped, ',')[1])
+    end
+    return last_time
+end
+
+function reaches_time(actual::Real, target::Real; rtol::Real = 1.0e-8)
+    return isfinite(actual) && actual + max(rtol, abs(target) * rtol) >= target
+end
+
+function kolmogorov_case_has_data(case_dir::AbstractString; required_end_time = nothing)
     csv_path = joinpath(case_dir, "analysis", "energy_enstrophy_history.csv")
     metadata_path = joinpath(case_dir, "analysis", "case_metadata.toml")
     snapshot_dir = joinpath(case_dir, "snapshots")
     isfile(csv_path) || return false
     isfile(metadata_path) || return false
     isdir(snapshot_dir) || return false
-    return any(path -> endswith(lowercase(path), ".h5"), readdir(snapshot_dir; join = true))
+    any(path -> endswith(lowercase(path), ".h5"), readdir(snapshot_dir; join = true)) || return false
+    required_end_time === nothing && return true
+    return reaches_time(last_csv_time(csv_path), Float64(required_end_time))
 end
 
 function ensure_kolmogorov_case_dirs!(cfg::KolmogorovHDConfig)

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +17,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 PGEN_SOURCE = SCRIPT_DIR / "kolmogorov_hd.cpp"
+VTK_TIME_RE = re.compile(r"time=([+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)")
 
 
 def load_toml(path: Path) -> dict:
@@ -264,11 +267,51 @@ def prepare_athena_tree(cfg: AthenaConfig) -> None:
     shutil.copy2(PGEN_SOURCE, cfg.athena_work_dir / "src" / "pgen" / "kolmogorov_hd.cpp")
 
 
+def read_last_hst_time(path: Path) -> float:
+    last_time = math.nan
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        last_time = float(stripped.split()[0])
+    return last_time
+
+
+def read_vtk_time(path: Path) -> float:
+    with path.open("rb") as handle:
+        for _ in range(3):
+            line = handle.readline()
+            if not line:
+                break
+            match = VTK_TIME_RE.search(line.decode("ascii", errors="ignore"))
+            if match:
+                return float(match.group(1))
+    return math.nan
+
+
+def max_finite(values) -> float:
+    finite = [value for value in values if math.isfinite(value)]
+    return max(finite) if finite else math.nan
+
+
+def reaches_time(actual: float, target: float, tolerance: float) -> bool:
+    return math.isfinite(actual) and actual + tolerance >= target
+
+
 def case_has_data(cfg: AthenaConfig) -> bool:
+    metadata_path = cfg.analysis_dir / "case_metadata.toml"
+    hst_files = sorted(cfg.snapshot_dir.glob("*.hst"))
+    vtk_files = sorted(cfg.snapshot_dir.glob("*.vtk"))
+    if not metadata_path.is_file() or not hst_files or not vtk_files:
+        return False
+
+    time_tolerance = max(1.0e-8, abs(cfg.end_time) * 1.0e-8)
+    snapshot_tolerance = max(cfg.snapshot_dt, time_tolerance)
+    last_history_time = max_finite(read_last_hst_time(path) for path in hst_files)
+    last_snapshot_time = max_finite(read_vtk_time(path) for path in vtk_files)
     return (
-        (cfg.analysis_dir / "case_metadata.toml").is_file()
-        and any(cfg.snapshot_dir.glob("*.hst"))
-        and any(cfg.snapshot_dir.glob("*.vtk"))
+        reaches_time(last_history_time, cfg.end_time, time_tolerance)
+        and reaches_time(last_snapshot_time, cfg.end_time, snapshot_tolerance)
     )
 
 

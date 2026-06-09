@@ -35,7 +35,7 @@ println("Running 2D incompressible Kolmogorov flow")
 println("Config file: $(config_path)")
 println("Case directory: $(case_dir)")
 
-if cfg.reuse_existing_data && kolmogorov_case_has_data(case_dir)
+if cfg.reuse_existing_data && kolmogorov_case_has_data(case_dir; required_end_time = cfg.end_time)
     println("Existing Kolmogorov HD data found; skipping simulation")
     if cfg.plot_after_run
         include(joinpath(@__DIR__, "plot_kolmogorov_hd.jl"))

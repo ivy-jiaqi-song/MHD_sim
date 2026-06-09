@@ -12,6 +12,10 @@ from pathlib import Path
 import numpy as np
 
 
+SNAPSHOT_PANEL_COUNT = 6
+VTK_TIME_RE = re.compile(r"time=([+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)")
+
+
 def parse_simple_toml(path: Path) -> dict:
     settings = {}
     if not path.exists():
@@ -139,6 +143,16 @@ def consume_newline(handle) -> None:
             handle.seek(pos)
 
 
+def read_vtk_time(path: Path) -> float:
+    with path.open("rb") as handle:
+        for _ in range(3):
+            line = read_line(handle)
+            match = VTK_TIME_RE.search(line)
+            if match:
+                return float(match.group(1))
+    return math.nan
+
+
 def read_big_endian_floats(handle, count: int) -> np.ndarray:
     raw = handle.read(4 * count)
     if len(raw) != 4 * count:
@@ -152,10 +166,9 @@ def read_vtk(path: Path) -> dict:
         time = math.nan
         for _ in range(3):
             line = read_line(handle)
-            if "time=" in line:
-                match = re.search(r"time=([+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)", line)
-                if match:
-                    time = float(match.group(1))
+            match = VTK_TIME_RE.search(line)
+            if match:
+                time = float(match.group(1))
         dataset = read_line(handle)
         if dataset != "DATASET RECTILINEAR_GRID":
             raise RuntimeError(f"Unsupported VTK dataset in {path}: {dataset}")
@@ -215,9 +228,38 @@ def snapshot_paths(case_dir: Path) -> list[Path]:
     return paths
 
 
-def select_indices(n: int, max_panels: int = 6) -> list[int]:
-    count = min(max_panels, n)
-    return sorted(set(int(round(v)) for v in np.linspace(0, n - 1, count)))
+def snapshot_time_records(paths: list[Path]) -> list[tuple[Path, float]]:
+    records = []
+    for fallback_index, path in enumerate(paths):
+        time = read_vtk_time(path)
+        if not math.isfinite(time):
+            time = float(fallback_index)
+        records.append((path, time))
+    return sorted(records, key=lambda record: (record[1], str(record[0])))
+
+
+def select_snapshot_paths(paths: list[Path], max_panels: int = SNAPSHOT_PANEL_COUNT) -> list[Path]:
+    if max_panels <= 0 or not paths:
+        return []
+
+    records = snapshot_time_records(paths)
+    count = min(max_panels, len(records))
+    if count == len(records):
+        return [path for path, _ in records]
+    if count == 1:
+        return [records[0][0]]
+
+    times = [time for _, time in records]
+    targets = np.linspace(times[0], times[-1], count)
+    selected = {0, len(records) - 1}
+    available = range(1, len(records) - 1)
+    for target in targets[1:-1]:
+        for index in sorted(available, key=lambda i: (abs(times[i] - target), i)):
+            if index not in selected:
+                selected.add(index)
+                break
+
+    return [records[index][0] for index in sorted(selected)]
 
 
 def periodic_derivative_x(values: np.ndarray, dx: float) -> np.ndarray:
@@ -266,7 +308,7 @@ def plot_field_snapshots(
 ) -> Path:
     plt = import_pyplot()
     paths = snapshot_paths(case_dir)
-    selected = [paths[i] for i in select_indices(len(paths))]
+    selected = select_snapshot_paths(paths)
     snapshots = [read_vtk(path) for path in selected]
     fields = [values_fn(snapshot) for snapshot in snapshots]
     rows, cols = subplot_grid(len(snapshots))
@@ -364,7 +406,7 @@ def plot_velocity_y_snapshots(case_dir: Path) -> Path:
 def plot_velocity_phase_snapshots(case_dir: Path) -> Path:
     plt = import_pyplot()
     paths = snapshot_paths(case_dir)
-    selected = [paths[i] for i in select_indices(len(paths), max_panels=4)]
+    selected = select_snapshot_paths(paths)
     snapshots = [read_vtk(path) for path in selected]
     vmax = max(
         max(float(np.max(np.abs(snapshot["vx"]))), float(np.max(np.abs(snapshot["vy"]))))

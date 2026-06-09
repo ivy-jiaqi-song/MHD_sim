@@ -35,6 +35,8 @@ end
 
 import PyPlot
 
+const SNAPSHOT_PANEL_COUNT = 6
+
 function latest_kolmogorov_case_root(output_root::AbstractString)
     isdir(output_root) || error("No outputs directory exists yet: $(output_root)")
     cases = filter(isdir, readdir(output_root; join = true))
@@ -85,6 +87,12 @@ function read_velocity_snapshot(path::String)
     end
 end
 
+function read_velocity_snapshot_time(path::String)
+    h5open(path, "r") do file
+        return Float64(read(file, "time"))
+    end
+end
+
 function centered_periodic_derivative_y(a, dy)
     nx, ny = size(a)
     out = similar(a, Float64)
@@ -122,16 +130,35 @@ function vorticity_z(snapshot, domain_length::Real)
     return centered_periodic_derivative_x(uy, dx) .- centered_periodic_derivative_y(ux, dy)
 end
 
-function selected_snapshot_indices(n::Int, max_panels::Int = 4)
-    count = min(max_panels, n)
-    return unique(round.(Int, range(1, n; length = count)))
+function selected_snapshot_paths(paths::AbstractVector{<:AbstractString}; max_panels::Int = SNAPSHOT_PANEL_COUNT)
+    count = min(max_panels, length(paths))
+    count <= 0 && return String[]
+
+    records = [(path = String(path), time = read_velocity_snapshot_time(String(path))) for path in paths]
+    sort!(records; by = record -> (record.time, record.path))
+    count == length(records) && return [record.path for record in records]
+    count == 1 && return [records[1].path]
+
+    times = [record.time for record in records]
+    targets = collect(range(times[1], times[end]; length = count))
+    selected = Set([1, length(records)])
+    available = collect(2:(length(records) - 1))
+    for target in targets[2:(end - 1)]
+        for index in sort(available; by = i -> (abs(times[i] - target), i))
+            if !(index in selected)
+                push!(selected, index)
+                break
+            end
+        end
+    end
+    return [records[index].path for index in sort(collect(selected))]
 end
 
-function plot_vorticity_snapshots(case_dir::AbstractString; max_panels::Int = 4)
+function plot_vorticity_snapshots(case_dir::AbstractString; max_panels::Int = SNAPSHOT_PANEL_COUNT)
     metadata = TOML.parsefile(joinpath(case_dir, "analysis", "case_metadata.toml"))
     domain_length = Float64(get(metadata, "domain_length", 1.0))
     paths = snapshot_paths(case_dir)
-    selected = paths[selected_snapshot_indices(length(paths), max_panels)]
+    selected = selected_snapshot_paths(paths; max_panels = max_panels)
     snapshots = read_velocity_snapshot.(selected)
     vorticities = [vorticity_z(snapshot, domain_length) for snapshot in snapshots]
     clim = maximum(maximum(abs, omega) for omega in vorticities)
@@ -183,11 +210,11 @@ function velocity_magnitude_field(snapshot)
     return sqrt.(ux .^ 2 .+ uy .^ 2 .+ uz .^ 2)
 end
 
-function plot_velocity_field_snapshots(case_dir::AbstractString, values_fn, cmap::AbstractString, colorbar_label, output_name::AbstractString; symmetric::Bool = false, max_panels::Int = 4)
+function plot_velocity_field_snapshots(case_dir::AbstractString, values_fn, cmap::AbstractString, colorbar_label, output_name::AbstractString; symmetric::Bool = false, max_panels::Int = SNAPSHOT_PANEL_COUNT)
     metadata = TOML.parsefile(joinpath(case_dir, "analysis", "case_metadata.toml"))
     domain_length = Float64(get(metadata, "domain_length", 1.0))
     paths = snapshot_paths(case_dir)
-    selected = paths[selected_snapshot_indices(length(paths), max_panels)]
+    selected = selected_snapshot_paths(paths; max_panels = max_panels)
     snapshots = read_velocity_snapshot.(selected)
     fields = [values_fn(snapshot) for snapshot in snapshots]
 
@@ -251,9 +278,9 @@ function velocity_phase_components(snapshot)
     return vx, vy
 end
 
-function plot_velocity_phase_snapshots(case_dir::AbstractString; max_panels::Int = 4)
+function plot_velocity_phase_snapshots(case_dir::AbstractString; max_panels::Int = SNAPSHOT_PANEL_COUNT)
     paths = snapshot_paths(case_dir)
-    selected = paths[selected_snapshot_indices(length(paths), max_panels)]
+    selected = selected_snapshot_paths(paths; max_panels = max_panels)
     snapshots = read_velocity_snapshot.(selected)
     components = velocity_phase_components.(snapshots)
     vmax = maximum(max(maximum(abs, vx), maximum(abs, vy)) for (vx, vy) in components)
