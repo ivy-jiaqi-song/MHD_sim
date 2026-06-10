@@ -483,22 +483,13 @@ function snapshot_diagnostics_rows(history::SnapshotDiagnosticsHistory)
     for i in eachindex(history.times)
         push!(rows, Dict{String, Any}(
             "file" => history.files[i],
-            "file_number" => history.file_numbers[i],
             "time" => history.times[i],
             "rho_mean" => history.rho_mean[i],
-            "velocity_rms" => history.velocity_rms[i],
             "velocity_fluct_rms" => history.velocity_fluct_rms[i],
             "sonic_mach" => history.sonic_mach[i],
-            "sonic_mach_total" => history.sonic_mach_total[i],
             "magnetic_mean_strength" => history.magnetic_mean_strength[i],
-            "magnetic_rms_total" => history.magnetic_rms_total[i],
             "magnetic_rms_fluct" => history.magnetic_rms_fluct[i],
-            "alfven_speed_mean" => history.alfven_speed_mean[i],
-            "alfven_speed_total" => history.alfven_speed_total[i],
-            "alfven_speed_fluct" => history.alfven_speed_fluct[i],
             "alfven_mach_mean" => history.alfven_mach_mean[i],
-            "alfven_mach_total" => history.alfven_mach_total[i],
-            "alfven_mach_fluct" => history.alfven_mach_fluct[i],
         ))
     end
     return rows
