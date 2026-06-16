@@ -33,7 +33,9 @@ Athena elsewhere, set `athena_project` in `configs/config.local.toml`, or set
 `ATHENA_PROJECT` before running the scripts. The Athena runner copies this
 checkout into `build/athena_mhdflows/` by default, installs the repo-owned
 problem generator there, and configures/builds the copy. The original Athena
-checkout is not modified.
+checkout is not modified. With `athena_use_build_copy = true`, `athena_project`
+names the source checkout; the executable used for the run is
+`build/athena_mhdflows/bin/athena` after the copied tree is built.
 
 Instantiate the solver environment once:
 

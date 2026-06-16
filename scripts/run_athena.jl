@@ -674,7 +674,7 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     metadata_path = joinpath(analysis_dir, "case_metadata.toml")
 
     write_athena_generated_input(input_path, cfg)
-    command = athena_run_command(cfg, input_path, case_dir; require_executable = !cfg.athena_dry_run)
+    command = athena_run_command(cfg, input_path, case_dir; require_executable = false)
     write_athena_metadata(metadata_path, cfg; input_path = input_path, command = command, status = "prepared")
 
     println("Running Athena++ reference simulation")
@@ -690,6 +690,8 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     end
 
     maybe_configure_and_make_athena!(cfg)
+    command = athena_run_command(cfg, input_path, case_dir; require_executable = true)
+    write_athena_metadata(metadata_path, cfg; input_path = input_path, command = command, status = "built")
 
     stdout_path = joinpath(analysis_dir, "athena_run.out.log")
     stderr_path = joinpath(analysis_dir, "athena_run.err.log")
