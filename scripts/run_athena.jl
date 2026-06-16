@@ -421,13 +421,37 @@ end
 
 command_text(parts::Vector{String}) = join(map(part -> occursin(r"\s", part) ? "\"$(replace(part, "\"" => "\\\""))\"" : part, parts), " ")
 
+function log_tail(path::String, max_lines::Int = 40)
+    isfile(path) || return ["<log file does not exist>"]
+    lines = readlines(path)
+    isempty(lines) && return ["<log file is empty>"]
+    start = max(1, length(lines) - max_lines + 1)
+    return lines[start:end]
+end
+
+function print_log_tail(label::String, path::String)
+    println(stderr, "--- $(label): $(path) ---")
+    for line in log_tail(path)
+        println(stderr, line)
+    end
+    return nothing
+end
+
 function run_logged(command_parts::Vector{String}, working_dir::String, stdout_path::String, stderr_path::String)
-    open(stdout_path, "a") do out
-        open(stderr_path, "a") do err
-            cd(working_dir) do
-                run(pipeline(Cmd(command_parts); stdout = out, stderr = err))
+    try
+        open(stdout_path, "a") do out
+            open(stderr_path, "a") do err
+                cd(working_dir) do
+                    run(pipeline(Cmd(command_parts); stdout = out, stderr = err))
+                end
             end
         end
+    catch err
+        println(stderr, "Command failed in $(working_dir): $(command_text(command_parts))")
+        println(stderr, "Exception: $(err)")
+        print_log_tail("stdout tail", stdout_path)
+        print_log_tail("stderr tail", stderr_path)
+        error("Command failed. See logs above or inspect $(stdout_path) and $(stderr_path).")
     end
     return nothing
 end
