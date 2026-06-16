@@ -74,6 +74,7 @@ mkdir -p "$log_root"
 stamp="$(date +%Y%m%d_%H%M%S)"
 log_file="$log_root/simulation_$stamp.log"
 pid_file="$log_root/simulation_$stamp.pid"
+git_commit="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || true)"
 
 cmd=(julia "$repo_root/scripts/run_simulation.jl")
 if [[ -n "$config" ]]; then
@@ -87,14 +88,23 @@ cmd+=("${run_args[@]}")
 {
   printf 'started: %s\n' "$(date -Is)"
   printf 'repo: %s\n' "$repo_root"
+  if [[ -n "$git_commit" ]]; then
+    printf 'git commit: %s\n' "$git_commit"
+  fi
   printf 'command:'
   printf ' %q' "${cmd[@]}"
   printf '\n\n'
-} >"$log_file"
+} | tee "$log_file"
 
 nohup "${cmd[@]}" >>"$log_file" 2>&1 &
 pid="$!"
 printf '%s\n' "$pid" >"$pid_file"
+
+{
+  printf 'background pid: %s\n' "$pid"
+  printf 'pid file: %s\n' "$pid_file"
+  printf '\n'
+} | tee -a "$log_file"
 
 echo "Started background simulation."
 echo "PID: $pid"

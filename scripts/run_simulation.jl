@@ -11,9 +11,19 @@ end
 
 include(joinpath(@__DIR__, "runner_config.jl"))
 
+println("MHD_sim launcher started")
+println("Working directory: $(pwd())")
+println("Entry script: $(abspath(PROGRAM_FILE))")
+println("Arguments: $(isempty(ARGS) ? "<none>" : join(ARGS, " "))")
+flush(stdout)
+
 config_path_arg, solver_arg, positionals = split_runner_args(ARGS)
 config_path, settings = load_config(config_path_arg)
 solver = configured_solver(settings, solver_arg)
+
+println("Loaded config: $(config_path)")
+println("Selected solver: $(solver)")
+flush(stdout)
 
 if solver == "mhdflows"
     include(joinpath(@__DIR__, "run_mhdflows.jl"))
