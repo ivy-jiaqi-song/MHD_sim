@@ -37,6 +37,7 @@ Base.@kwdef mutable struct AthenaConfig
     athena_build_copy::String = joinpath("build", "athena_mhdflows")
     athena_refresh_build_copy::Bool = false
     athena_pgen_source::String = joinpath("athena_pgen", "mhdflows_turbulence.cpp")
+    athena_patch_fp16::Bool = true
     athena_configure::Bool = true
     athena_make::Bool = true
     athena_configure_args::Vector{String} = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
@@ -230,6 +231,7 @@ function athena_config_from_sources(settings, positionals::Vector{String})
         athena_build_copy = resolve_repo_path(athena_as_string(get_config(settings, "athena_build_copy", joinpath("build", "athena_mhdflows")))),
         athena_refresh_build_copy = athena_as_bool(get_config(settings, "athena_refresh_build_copy", false)),
         athena_pgen_source = resolve_repo_path(athena_as_string(get_config(settings, "athena_pgen_source", joinpath("athena_pgen", "mhdflows_turbulence.cpp")))),
+        athena_patch_fp16 = athena_as_bool(get_config(settings, "athena_patch_fp16", true)),
         athena_configure = athena_as_bool(get_config(settings, "athena_configure", true)),
         athena_make = athena_as_bool(get_config(settings, "athena_make", true)),
         athena_configure_args = configure_args,
@@ -390,6 +392,42 @@ function path_is_within(path::AbstractString, parent::AbstractString)
     return relative == "." || (isempty(parts) || parts[1] != "..")
 end
 
+function patch_athena_fp16_detection!(athena_project::String)
+    header_path = joinpath(athena_project, "src", "athena.hpp")
+    isfile(header_path) || error("Athena header not found for fp16 patch: $(header_path)")
+    text = read(header_path, String)
+    old = """
+#ifndef __INTEL_LLVM_COMPILER
+#if defined(__fp16) || defined(__FLT16_MAX__) || defined(__ARM_FP16_FORMAT_IEEE)
+#define fp16_t __fp16
+#elif defined(_Float16)
+#define fp16_t _Float16
+#endif
+#else
+#define fp16_t_not_supported
+#endif // __INTEL_LLVM_COMPILER
+"""
+    new = """
+#ifndef __INTEL_LLVM_COMPILER
+#if defined(__ARM_FP16_FORMAT_IEEE)
+#define fp16_t __fp16
+#elif defined(__FLT16_MAX__)
+#define fp16_t _Float16
+#elif defined(_Float16)
+#define fp16_t _Float16
+#endif
+#else
+#define fp16_t_not_supported
+#endif // __INTEL_LLVM_COMPILER
+"""
+    if occursin(new, text)
+        return nothing
+    end
+    occursin(old, text) || error("Athena fp16 detection block not recognized in $(header_path)")
+    write(header_path, replace(text, old => new))
+    return nothing
+end
+
 function prepare_athena_build_copy!(cfg::AthenaConfig)
     cfg.athena_source_project = isempty(cfg.athena_source_project) ? cfg.athena_project : cfg.athena_source_project
     cfg.athena_use_build_copy || return cfg.athena_project
@@ -413,6 +451,10 @@ function prepare_athena_build_copy!(cfg::AthenaConfig)
         target = joinpath(build_project, "src", "pgen", "$(cfg.athena_problem).cpp")
         mkpath(dirname(target))
         cp(cfg.athena_pgen_source, target; force = true)
+    end
+
+    if cfg.athena_patch_fp16
+        patch_athena_fp16_detection!(build_project)
     end
 
     cfg.athena_project = build_project
@@ -626,6 +668,7 @@ function write_athena_metadata(path::String, cfg::AthenaConfig; input_path::Stri
         "athena_build_copy" => cfg.athena_build_copy,
         "athena_refresh_build_copy" => cfg.athena_refresh_build_copy,
         "athena_pgen_source" => cfg.athena_pgen_source,
+        "athena_patch_fp16" => cfg.athena_patch_fp16,
         "athena_configure" => cfg.athena_configure,
         "athena_make" => cfg.athena_make,
         "athena_configure_args" => cfg.athena_configure_args,

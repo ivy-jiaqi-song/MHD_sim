@@ -36,6 +36,9 @@ problem generator there, and configures/builds the copy. The original Athena
 checkout is not modified. With `athena_use_build_copy = true`, `athena_project`
 names the source checkout; the executable used for the run is
 `build/athena_mhdflows/bin/athena` after the copied tree is built.
+The runner also applies a small fp16 compiler-compatibility patch inside the
+copied tree by default; set `athena_patch_fp16 = false` if your Athena checkout
+or compiler no longer needs it.
 
 Instantiate the solver environment once:
 
@@ -274,6 +277,7 @@ athena_use_build_copy = true
 athena_build_copy = "build/athena_mhdflows"
 athena_refresh_build_copy = false
 athena_pgen_source = "athena_pgen/mhdflows_turbulence.cpp"
+athena_patch_fp16 = true
 athena_configure = true
 athena_make = true
 athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]

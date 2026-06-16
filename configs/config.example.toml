@@ -65,6 +65,7 @@ athena_use_build_copy = true
 athena_build_copy = "build/athena_mhdflows"
 athena_refresh_build_copy = false
 athena_pgen_source = "athena_pgen/mhdflows_turbulence.cpp"
+athena_patch_fp16 = true # Patch copied Athena src/athena.hpp for GCC/_Float16 builds.
 athena_configure = true
 athena_make = true
 athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
