@@ -84,7 +84,15 @@ if [[ -n "$solver" ]]; then
 fi
 cmd+=("${run_args[@]}")
 
-nohup "${cmd[@]}" >"$log_file" 2>&1 &
+{
+  printf 'started: %s\n' "$(date -Is)"
+  printf 'repo: %s\n' "$repo_root"
+  printf 'command:'
+  printf ' %q' "${cmd[@]}"
+  printf '\n\n'
+} >"$log_file"
+
+nohup "${cmd[@]}" >>"$log_file" 2>&1 &
 pid="$!"
 printf '%s\n' "$pid" >"$pid_file"
 

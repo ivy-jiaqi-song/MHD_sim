@@ -386,13 +386,25 @@ function resolve_athena_executable(cfg::AthenaConfig; require_exists::Bool = tru
     return path
 end
 
+function athena_status(message::AbstractString; log_path::AbstractString = "")
+    println(message)
+    flush(stdout)
+    if !isempty(log_path)
+        mkpath(dirname(log_path))
+        open(log_path, "a") do io
+            println(io, message)
+        end
+    end
+    return nothing
+end
+
 function path_is_within(path::AbstractString, parent::AbstractString)
     relative = relpath(abspath(path), abspath(parent))
     parts = splitpath(relative)
     return relative == "." || (isempty(parts) || parts[1] != "..")
 end
 
-function patch_athena_fp16_detection!(athena_project::String)
+function patch_athena_fp16_detection!(athena_project::String; log_path::AbstractString = "")
     header_path = joinpath(athena_project, "src", "athena.hpp")
     isfile(header_path) || error("Athena header not found for fp16 patch: $(header_path)")
     text = read(header_path, String)
@@ -421,14 +433,19 @@ function patch_athena_fp16_detection!(athena_project::String)
 #endif // __INTEL_LLVM_COMPILER
 """
     if occursin(new, text)
+        athena_status("Athena fp16 patch already present: $(header_path)"; log_path = log_path)
         return nothing
     end
-    occursin(old, text) || error("Athena fp16 detection block not recognized in $(header_path)")
+    if !occursin(old, text)
+        athena_status("Athena fp16 patch skipped; detection block was not recognized in $(header_path)"; log_path = log_path)
+        return nothing
+    end
     write(header_path, replace(text, old => new))
+    athena_status("Applied Athena fp16 patch: $(header_path)"; log_path = log_path)
     return nothing
 end
 
-function prepare_athena_build_copy!(cfg::AthenaConfig)
+function prepare_athena_build_copy!(cfg::AthenaConfig; log_path::AbstractString = "")
     cfg.athena_source_project = isempty(cfg.athena_source_project) ? cfg.athena_project : cfg.athena_source_project
     cfg.athena_use_build_copy || return cfg.athena_project
 
@@ -438,12 +455,17 @@ function prepare_athena_build_copy!(cfg::AthenaConfig)
     abspath(build_project) != abspath(cfg.athena_source_project) || error("athena_build_copy must not be the source Athena checkout")
 
     if cfg.athena_refresh_build_copy && isdir(build_project)
+        athena_status("Removing existing Athena build copy: $(build_project)"; log_path = log_path)
         rm(build_project; recursive = true, force = true)
     end
 
     if !isdir(build_project)
+        athena_status("Copying Athena source from $(cfg.athena_source_project) to $(build_project)"; log_path = log_path)
         mkpath(dirname(build_project))
         cp(cfg.athena_source_project, build_project)
+        athena_status("Finished copying Athena build tree: $(build_project)"; log_path = log_path)
+    else
+        athena_status("Using existing Athena build copy: $(build_project)"; log_path = log_path)
     end
 
     if !isempty(strip(cfg.athena_pgen_source))
@@ -451,10 +473,11 @@ function prepare_athena_build_copy!(cfg::AthenaConfig)
         target = joinpath(build_project, "src", "pgen", "$(cfg.athena_problem).cpp")
         mkpath(dirname(target))
         cp(cfg.athena_pgen_source, target; force = true)
+        athena_status("Installed Athena problem generator: $(target)"; log_path = log_path)
     end
 
     if cfg.athena_patch_fp16
-        patch_athena_fp16_detection!(build_project)
+        patch_athena_fp16_detection!(build_project; log_path = log_path)
     end
 
     cfg.athena_project = build_project
@@ -733,10 +756,20 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     cfg.athena_hdf5_dt > 0 || error("athena_hdf5_dt must be positive")
 
     ensure_athena_case_dirs!(cfg)
-    prepare_athena_build_copy!(cfg)
-
     case_dir = athena_case_root(cfg)
     analysis_dir = athena_analysis_root(cfg)
+    preflight_log = joinpath(analysis_dir, "athena_preflight.log")
+    open(preflight_log, "w") do io
+        println(io, "Athena preflight log")
+    end
+
+    athena_status("Running Athena++ reference simulation"; log_path = preflight_log)
+    athena_status("Config file: $(config_path)"; log_path = preflight_log)
+    athena_status("Case directory: $(case_dir)"; log_path = preflight_log)
+    athena_status("Athena source project: $(cfg.athena_project)"; log_path = preflight_log)
+
+    prepare_athena_build_copy!(cfg; log_path = preflight_log)
+
     input_path = joinpath(analysis_dir, "athinput.generated")
     csv_path = joinpath(analysis_dir, "energy_history.csv")
     metadata_path = joinpath(analysis_dir, "case_metadata.toml")
@@ -745,15 +778,12 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     command = athena_run_command(cfg, input_path, case_dir; require_executable = false)
     write_athena_metadata(metadata_path, cfg; input_path = input_path, command = command, status = "prepared")
 
-    println("Running Athena++ reference simulation")
-    println("Config file: $(config_path)")
-    println("Case directory: $(case_dir)")
-    println("Athena project: $(cfg.athena_project)")
-    println("Athena input: $(input_path)")
-    println("Athena command: $(command_text(command))")
+    athena_status("Athena project: $(cfg.athena_project)"; log_path = preflight_log)
+    athena_status("Athena input: $(input_path)"; log_path = preflight_log)
+    athena_status("Athena command: $(command_text(command))"; log_path = preflight_log)
 
     if cfg.athena_dry_run
-        println("Athena dry run requested; generated input and metadata only.")
+        athena_status("Athena dry run requested; generated input and metadata only."; log_path = preflight_log)
         return nothing
     end
 
