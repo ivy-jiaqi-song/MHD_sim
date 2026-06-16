@@ -30,11 +30,10 @@ athena/
 
 That folder is also ignored by Git because it is external code. If you keep
 Athena elsewhere, set `athena_project` in `configs/config.local.toml`, or set
-`ATHENA_PROJECT` before running the scripts. The Athena runner expects an
-existing Athena executable by default, normally `bin/athena` under the Athena
-checkout. Optional `athena_configure` and `athena_make` settings are available,
-but they are off by default because Athena's configure/build process writes
-build files into the external checkout.
+`ATHENA_PROJECT` before running the scripts. The Athena runner copies this
+checkout into `build/athena_mhdflows/` by default, installs the repo-owned
+problem generator there, and configures/builds the copy. The original Athena
+checkout is not modified.
 
 Instantiate the solver environment once:
 
@@ -247,13 +246,19 @@ julia .\scripts\plot_energy_history.jl .\outputs\athena\<case-tag>
 
 ## Athena Reference Runs
 
-The default Athena path generates a stock Orszag-Tang MHD input file and writes
-it to `analysis/athinput.generated` before launching the external Athena
-binary. This is a useful MHD sanity check, but it is not an exact physical clone
-of the MHDFlows driven turbulence setup. Exact equivalence would require an
-Athena problem generator with matching initial conditions and forcing. To use
-one, set `athena_input_template` and point `athena_executable` at a binary
-compiled for that problem.
+The default Athena path now uses `athena_pgen/mhdflows_turbulence.cpp`, a
+repo-owned problem generator. The runner copies Athena into
+`build/athena_mhdflows/`, copies that generator into the build tree as
+`src/pgen/mhdflows_turbulence.cpp`, configures Athena with
+`--prob=mhdflows_turbulence`, and generates `analysis/athinput.generated` from
+the same TOML parameters used by MHDFlows.
+
+This makes the comparison workflow automatic, but it is still not bitwise
+identical physics. The generator maps the same box, sound speed, guide field,
+viscosity/resistivity, initial velocity amplitude, and forcing band/power into
+Athena. Athena then uses its native turbulence driver, time integrator,
+Riemann solver, reconstruction, and HDF5 writer, so solver and forcing
+implementation differences remain part of the comparison.
 
 Useful Athena config fields:
 
@@ -261,21 +266,26 @@ Useful Athena config fields:
 solver = "athena"
 athena_project = "athena"
 athena_executable = "bin/athena"
-athena_problem = "orszag_tang"
+athena_problem = "mhdflows_turbulence"
 athena_input_template = ""
-athena_configure = false
-athena_make = false
-athena_configure_args = ["-b", "--prob=orszag_tang", "--eos=isothermal", "-hdf5"]
+athena_use_build_copy = true
+athena_build_copy = "build/athena_mhdflows"
+athena_refresh_build_copy = false
+athena_pgen_source = "athena_pgen/mhdflows_turbulence.cpp"
+athena_configure = true
+athena_make = true
+athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
 ```
 
 Use `athena_dry_run = true` to generate the Athena input and metadata without
 launching the binary. Use `athena_parse_only = true` to call Athena with `-n`
-when an executable is available.
+after the build copy is available.
 
 ## Repository Notes
 
-Generated outputs are ignored by Git because HDF5 snapshots can become large.
-`MHDFlows_dev-main/` and `athena/` are also ignored because they are external
-package checkouts, not original code from this repository. `configs/config.local.toml`,
-legacy `config.local.toml`, and `task*.md` are ignored because they are
-machine-local working notes/settings.
+Generated outputs and local build copies are ignored by Git because HDF5
+snapshots and Athena build trees can become large. `MHDFlows_dev-main/` and
+`athena/` are also ignored because they are external package checkouts, not
+original code from this repository. `configs/config.local.toml`, legacy
+`config.local.toml`, and `task*.md` are ignored because they are machine-local
+working notes/settings.

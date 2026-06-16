@@ -17,6 +17,7 @@ Base.@kwdef mutable struct AthenaConfig
     forcing_wavenumber::Float64 = 2.0
     forcing_power::Float64 = 8.0e3
     forcing_width::Float64 = 1.0
+    initial_velocity_power::Float64 = 5.0e-4
     fixed_dt::Float64 = 0.0
     end_time::Float64 = 60.0
     max_steps::Int = 80_000
@@ -26,14 +27,19 @@ Base.@kwdef mutable struct AthenaConfig
     stability_abs_change::Float64 = 0.06
     seed::Int = 1234
     tag_suffix::String = ""
-    athena_problem::String = "orszag_tang"
+    athena_source_project::String = ""
+    athena_problem::String = "mhdflows_turbulence"
     athena_input_template::String = ""
     athena_problem_id::String = ""
     athena_parse_only::Bool = false
     athena_dry_run::Bool = false
-    athena_configure::Bool = false
-    athena_make::Bool = false
-    athena_configure_args::Vector{String} = ["-b", "--prob=orszag_tang", "--eos=isothermal", "-hdf5"]
+    athena_use_build_copy::Bool = true
+    athena_build_copy::String = joinpath("build", "athena_mhdflows")
+    athena_refresh_build_copy::Bool = false
+    athena_pgen_source::String = joinpath("athena_pgen", "mhdflows_turbulence.cpp")
+    athena_configure::Bool = true
+    athena_make::Bool = true
+    athena_configure_args::Vector{String} = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
     athena_make_args::Vector{String} = String[]
     athena_run_args::Vector{String} = String[]
     athena_cfl_number::Float64 = 0.4
@@ -46,11 +52,15 @@ Base.@kwdef mutable struct AthenaConfig
     athena_meshblock_nx1::Int = 128
     athena_meshblock_nx2::Int = 128
     athena_meshblock_nx3::Int = 128
-    athena_box_size::Float64 = 1.0
+    athena_box_size::Float64 = 0.0
     athena_history_dt::Float64 = 0.1
     athena_hdf5_dt::Float64 = 5.0
     athena_output_variable::String = "prim"
     athena_hdf5_data_format::String = "float32"
+    athena_turb_flag::Int = 3
+    athena_tcorr::Float64 = 0.1
+    athena_dtdrive::Float64 = 0.1
+    athena_f_shear::Float64 = 1.0
 end
 
 athena_as_string(value) = String(value)
@@ -105,6 +115,29 @@ function default_athena_history_dt(end_time::Real, snapshot_dt::Real)
     return max(candidate, eps(Float64))
 end
 
+function default_athena_configure_args(problem::AbstractString)
+    normalized = lowercase(strip(String(problem)))
+    if normalized == "mhdflows_turbulence"
+        return ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
+    elseif normalized == "turb"
+        return ["-b", "--prob=turb", "--eos=isothermal", "-hdf5", "-fft"]
+    elseif normalized == "orszag_tang"
+        return ["-b", "--prob=orszag_tang", "--eos=isothermal", "-hdf5"]
+    end
+    return ["-b", "--prob=$(problem)", "--eos=isothermal", "-hdf5"]
+end
+
+function configure_args_problem(args::Vector{String})
+    for (index, arg) in enumerate(args)
+        if startswith(arg, "--prob=")
+            return split(arg, "=", limit = 2)[2]
+        elseif arg == "--prob" && index < length(args)
+            return args[index + 1]
+        end
+    end
+    return nothing
+end
+
 function athena_config_from_sources(settings, positionals::Vector{String})
     length(positionals) <= 9 || error("Expected at most 9 positional overrides. Run with --help for usage.")
 
@@ -151,15 +184,26 @@ function athena_config_from_sources(settings, positionals::Vector{String})
 
     template = athena_as_string(get_config(settings, "athena_input_template", ""))
     template_path = isempty(template) ? "" : resolve_repo_path(template)
+    athena_problem = athena_as_string(get_config(settings, "athena_problem", "mhdflows_turbulence"))
+    configure_args = haskey(settings, "athena_configure_args") ?
+        athena_as_string_vector(settings["athena_configure_args"]) :
+        default_athena_configure_args(athena_problem)
+    source_project = athena_project_path(settings)
+    athena_box_size_raw = athena_as_float(get_config(settings, "athena_box_size", 0.0))
+    shared_box_size = athena_as_float(get_config(settings, "box_size", 2pi))
+    athena_box_size = athena_box_size_raw > 0 ? athena_box_size_raw : shared_box_size
+    tcorr_raw = athena_as_float(get_config(settings, "athena_tcorr", 0.0))
+    dtdrive_raw = athena_as_float(get_config(settings, "athena_dtdrive", 0.0))
 
     cfg = AthenaConfig(;
         output_root = configured_output_root(settings),
-        athena_project = athena_project_path(settings),
+        athena_project = source_project,
+        athena_source_project = source_project,
         athena_executable = athena_as_string(get_config(settings, "athena_executable", "bin/athena")),
         name = athena_as_string(get_config(settings, "name", "compressible_mhd_baseline")),
         description = athena_as_string(get_config(settings, "description", "Athena++ reference MHD sanity check")),
         nx = nx,
-        box_size = athena_as_float(get_config(settings, "box_size", 2pi)),
+        box_size = shared_box_size,
         sound_speed = athena_as_float(get_config(settings, "sound_speed", sqrt(2.0))),
         viscosity = viscosity,
         resistivity = resistivity,
@@ -167,6 +211,7 @@ function athena_config_from_sources(settings, positionals::Vector{String})
         forcing_wavenumber = athena_as_float(get_config(settings, "forcing_wavenumber", 2.0)),
         forcing_power = forcing_power,
         forcing_width = athena_as_float(get_config(settings, "forcing_width", 1.0)),
+        initial_velocity_power = athena_as_float(get_config(settings, "initial_velocity_power", 5.0e-4)),
         fixed_dt = fixed_dt,
         end_time = end_time,
         max_steps = athena_as_int(get_config(settings, "max_steps", 80_000)),
@@ -176,14 +221,18 @@ function athena_config_from_sources(settings, positionals::Vector{String})
         stability_abs_change = athena_as_float(get_config(settings, "stability_abs_change", 0.06)),
         seed = seed,
         tag_suffix = tag_suffix,
-        athena_problem = athena_as_string(get_config(settings, "athena_problem", "orszag_tang")),
+        athena_problem = athena_problem,
         athena_input_template = template_path,
         athena_problem_id = athena_as_string(get_config(settings, "athena_problem_id", "")),
         athena_parse_only = athena_as_bool(get_config(settings, "athena_parse_only", false)),
         athena_dry_run = athena_as_bool(get_config(settings, "athena_dry_run", false)),
-        athena_configure = athena_as_bool(get_config(settings, "athena_configure", false)),
-        athena_make = athena_as_bool(get_config(settings, "athena_make", false)),
-        athena_configure_args = athena_as_string_vector(get_config(settings, "athena_configure_args", ["-b", "--prob=orszag_tang", "--eos=isothermal", "-hdf5"])),
+        athena_use_build_copy = athena_as_bool(get_config(settings, "athena_use_build_copy", true)),
+        athena_build_copy = resolve_repo_path(athena_as_string(get_config(settings, "athena_build_copy", joinpath("build", "athena_mhdflows")))),
+        athena_refresh_build_copy = athena_as_bool(get_config(settings, "athena_refresh_build_copy", false)),
+        athena_pgen_source = resolve_repo_path(athena_as_string(get_config(settings, "athena_pgen_source", joinpath("athena_pgen", "mhdflows_turbulence.cpp")))),
+        athena_configure = athena_as_bool(get_config(settings, "athena_configure", true)),
+        athena_make = athena_as_bool(get_config(settings, "athena_make", true)),
+        athena_configure_args = configure_args,
         athena_make_args = athena_as_string_vector(get_config(settings, "athena_make_args", String[])),
         athena_run_args = athena_as_string_vector(get_config(settings, "athena_run_args", String[])),
         athena_cfl_number = athena_as_float(get_config(settings, "athena_cfl_number", 0.4)),
@@ -196,14 +245,22 @@ function athena_config_from_sources(settings, positionals::Vector{String})
         athena_meshblock_nx1 = mb1,
         athena_meshblock_nx2 = mb2,
         athena_meshblock_nx3 = mb3,
-        athena_box_size = athena_as_float(get_config(settings, "athena_box_size", 1.0)),
+        athena_box_size = athena_box_size,
         athena_history_dt = history_dt,
         athena_hdf5_dt = hdf5_dt,
         athena_output_variable = athena_as_string(get_config(settings, "athena_output_variable", "prim")),
         athena_hdf5_data_format = athena_as_string(get_config(settings, "athena_hdf5_data_format", "float32")),
+        athena_turb_flag = athena_as_int(get_config(settings, "athena_turb_flag", 3)),
+        athena_tcorr = tcorr_raw > 0 ? tcorr_raw : history_dt,
+        athena_dtdrive = dtdrive_raw > 0 ? dtdrive_raw : history_dt,
+        athena_f_shear = athena_as_float(get_config(settings, "athena_f_shear", 1.0)),
     )
 
     cfg.athena_problem_id = isempty(cfg.athena_problem_id) ? sanitize_athena_id("athena_$(athena_case_tag(cfg))") : sanitize_athena_id(cfg.athena_problem_id)
+    configured_problem = configure_args_problem(cfg.athena_configure_args)
+    if cfg.athena_configure && configured_problem !== nothing && configured_problem != cfg.athena_problem
+        error("athena_configure_args selects --prob=$(configured_problem), but athena_problem=$(cfg.athena_problem). Keep them aligned for a meaningful run.")
+    end
     return cfg
 end
 
@@ -215,14 +272,18 @@ function write_athena_generated_input(path::String, cfg::AthenaConfig)
     end
 
     problem = lowercase(strip(cfg.athena_problem))
-    problem in ("orszag_tang", "turb") || error("No built-in generated Athena input for athena_problem=$(cfg.athena_problem). Set athena_input_template for custom problems.")
+    problem in ("mhdflows_turbulence", "orszag_tang", "turb") || error("No built-in generated Athena input for athena_problem=$(cfg.athena_problem). Set athena_input_template for custom problems.")
 
     half_box = cfg.athena_box_size / 2
     open(path, "w") do io
         println(io, "<comment>")
         println(io, "problem   = Generated Athena++ reference input")
         println(io, "reference = Generated by scripts/run_athena.jl")
-        println(io, "note      = Stock Athena problem; not a one-to-one clone of the MHDFlows forcing model")
+        if problem == "mhdflows_turbulence"
+            println(io, "note      = Uses repo-owned mhdflows_turbulence pgen plus Athena's turbulence driver")
+        else
+            println(io, "note      = Stock Athena problem; not a one-to-one clone of the MHDFlows forcing model")
+        end
         println(io)
         println(io, "<job>")
         println(io, "problem_id = $(cfg.athena_problem_id)")
@@ -279,22 +340,32 @@ function write_athena_generated_input(path::String, cfg::AthenaConfig)
         println(io, "gamma           = 1.666666666666667")
         println(io)
         println(io, "<problem>")
+        if problem == "mhdflows_turbulence"
+            println(io, "rho0                       = 1.0")
+            println(io, "sound_speed                = $(cfg.sound_speed)")
+            println(io, "pressure                   = $(cfg.sound_speed^2)")
+            println(io, "mean_field_x               = $(cfg.mean_field[1])")
+            println(io, "mean_field_y               = $(cfg.mean_field[2])")
+            println(io, "mean_field_z               = $(cfg.mean_field[3])")
+            println(io, "initial_velocity_power     = $(cfg.initial_velocity_power)")
+            println(io, "initial_velocity_wavenumber = 1.0")
+        end
         println(io, "nu_iso  = $(cfg.viscosity)")
         println(io, "eta_ohm = $(cfg.resistivity)")
 
-        if problem == "turb"
+        if problem in ("mhdflows_turbulence", "turb")
             nlow = max(0, floor(Int, cfg.forcing_wavenumber - cfg.forcing_width))
             nhigh = max(nlow + 1, ceil(Int, cfg.forcing_wavenumber + cfg.forcing_width))
             println(io)
             println(io, "<turbulence>")
-            println(io, "turb_flag = 3")
+            println(io, "turb_flag = $(cfg.athena_turb_flag)")
             println(io, "dedt      = $(cfg.forcing_power)")
             println(io, "nlow      = $(nlow)")
             println(io, "nhigh     = $(nhigh)")
             println(io, "expo      = 2.0")
-            println(io, "tcorr     = $(max(cfg.athena_history_dt, eps(Float64)))")
-            println(io, "dtdrive   = $(max(cfg.athena_history_dt, eps(Float64)))")
-            println(io, "f_shear   = 0.5")
+            println(io, "tcorr     = $(max(cfg.athena_tcorr, eps(Float64)))")
+            println(io, "dtdrive   = $(max(cfg.athena_dtdrive, eps(Float64)))")
+            println(io, "f_shear   = $(cfg.athena_f_shear)")
             println(io, "rseed     = $(cfg.seed)")
         end
     end
@@ -311,6 +382,41 @@ function resolve_athena_executable(cfg::AthenaConfig; require_exists::Bool = tru
         isfile(path) || error("Athena executable not found at $(path). Build Athena or set athena_executable.")
     end
     return path
+end
+
+function path_is_within(path::AbstractString, parent::AbstractString)
+    relative = relpath(abspath(path), abspath(parent))
+    parts = splitpath(relative)
+    return relative == "." || (isempty(parts) || parts[1] != "..")
+end
+
+function prepare_athena_build_copy!(cfg::AthenaConfig)
+    cfg.athena_source_project = isempty(cfg.athena_source_project) ? cfg.athena_project : cfg.athena_source_project
+    cfg.athena_use_build_copy || return cfg.athena_project
+
+    build_root = resolve_repo_path("build")
+    build_project = normpath(cfg.athena_build_copy)
+    path_is_within(build_project, build_root) || error("athena_build_copy must stay inside $(build_root); got $(build_project)")
+    abspath(build_project) != abspath(cfg.athena_source_project) || error("athena_build_copy must not be the source Athena checkout")
+
+    if cfg.athena_refresh_build_copy && isdir(build_project)
+        rm(build_project; recursive = true, force = true)
+    end
+
+    if !isdir(build_project)
+        mkpath(dirname(build_project))
+        cp(cfg.athena_source_project, build_project)
+    end
+
+    if !isempty(strip(cfg.athena_pgen_source))
+        isfile(cfg.athena_pgen_source) || error("Athena pgen source does not exist: $(cfg.athena_pgen_source)")
+        target = joinpath(build_project, "src", "pgen", "$(cfg.athena_problem).cpp")
+        mkpath(dirname(target))
+        cp(cfg.athena_pgen_source, target; force = true)
+    end
+
+    cfg.athena_project = build_project
+    return cfg.athena_project
 end
 
 command_text(parts::Vector{String}) = join(map(part -> occursin(r"\s", part) ? "\"$(replace(part, "\"" => "\\\""))\"" : part, parts), " ")
@@ -482,6 +588,7 @@ function write_athena_metadata(path::String, cfg::AthenaConfig; input_path::Stri
         "description" => cfg.description,
         "status" => status,
         "output_root" => cfg.output_root,
+        "athena_source_project" => cfg.athena_source_project,
         "athena_project" => cfg.athena_project,
         "athena_executable" => cfg.athena_executable,
         "athena_problem" => cfg.athena_problem,
@@ -490,12 +597,16 @@ function write_athena_metadata(path::String, cfg::AthenaConfig; input_path::Stri
         "athena_command" => command,
         "athena_parse_only" => cfg.athena_parse_only,
         "athena_dry_run" => cfg.athena_dry_run,
+        "athena_use_build_copy" => cfg.athena_use_build_copy,
+        "athena_build_copy" => cfg.athena_build_copy,
+        "athena_refresh_build_copy" => cfg.athena_refresh_build_copy,
+        "athena_pgen_source" => cfg.athena_pgen_source,
         "athena_configure" => cfg.athena_configure,
         "athena_make" => cfg.athena_make,
         "athena_configure_args" => cfg.athena_configure_args,
         "athena_make_args" => cfg.athena_make_args,
         "athena_run_args" => cfg.athena_run_args,
-        "athena_reference_note" => "Default generated Athena input is a stock reference problem and is not an exact clone of the MHDFlows driven turbulence setup.",
+        "athena_reference_note" => "mhdflows_turbulence maps the shared config into an Athena problem generator and Athena's native turbulence driver; it is intended for controlled comparison, but solver algorithms and forcing implementation are still Athena-specific.",
         "athena_history_note" => "magnetic_fluct mirrors magnetic_total because Athena .hst output does not separate guide-field and fluctuating magnetic energy.",
         "nx" => cfg.nx,
         "athena_nx1" => cfg.athena_nx1,
@@ -513,12 +624,17 @@ function write_athena_metadata(path::String, cfg::AthenaConfig; input_path::Stri
         "forcing_wavenumber" => cfg.forcing_wavenumber,
         "forcing_power" => cfg.forcing_power,
         "forcing_width" => cfg.forcing_width,
+        "initial_velocity_power" => cfg.initial_velocity_power,
         "fixed_dt" => cfg.fixed_dt,
         "end_time" => cfg.end_time,
         "max_steps" => cfg.max_steps,
         "snapshot_dt" => cfg.snapshot_dt,
         "athena_history_dt" => cfg.athena_history_dt,
         "athena_hdf5_dt" => cfg.athena_hdf5_dt,
+        "athena_turb_flag" => cfg.athena_turb_flag,
+        "athena_tcorr" => cfg.athena_tcorr,
+        "athena_dtdrive" => cfg.athena_dtdrive,
+        "athena_f_shear" => cfg.athena_f_shear,
         "late_window_fraction" => cfg.late_window_fraction,
         "stability_rel_band" => cfg.stability_rel_band,
         "stability_abs_change" => cfg.stability_abs_change,
@@ -549,6 +665,8 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     cfg.athena_hdf5_dt > 0 || error("athena_hdf5_dt must be positive")
 
     ensure_athena_case_dirs!(cfg)
+    prepare_athena_build_copy!(cfg)
+
     case_dir = athena_case_root(cfg)
     analysis_dir = athena_analysis_root(cfg)
     input_path = joinpath(analysis_dir, "athinput.generated")

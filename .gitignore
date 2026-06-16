@@ -4,6 +4,9 @@
 # Background-run logs and PID files.
 /logs/
 
+# Local build copies, including disposable Athena++ build trees.
+/build/
+
 # External solver checkout. Clone or unpack MHDFlows here locally.
 /MHDFlows_dev-main/
 
