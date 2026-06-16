@@ -4,11 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/run_background.sh [--config configs/config.local.toml] [--log-root logs] [simulation positional overrides...]
+  ./scripts/run_background.sh [--config configs/config.local.toml] [--solver mhdflows|athena] [--log-root logs] [simulation positional overrides...]
 
 Examples:
   ./scripts/run_background.sh
   ./scripts/run_background.sh --config configs/config.local.toml
+  ./scripts/run_background.sh --config configs/config.local.toml --solver athena
   ./scripts/run_background.sh --config configs/config.local.toml 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234
 EOF
 }
@@ -16,6 +17,7 @@ EOF
 script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_root/.." && pwd)"
 config=""
+solver=""
 log_root="logs"
 run_args=()
 
@@ -32,6 +34,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     --config=*)
       config="${1#--config=}"
+      shift
+      ;;
+    --solver)
+      [[ $# -ge 2 ]] || { echo "--solver requires a backend name" >&2; exit 2; }
+      solver="$2"
+      shift 2
+      ;;
+    --solver=*)
+      solver="${1#--solver=}"
       shift
       ;;
     --log-root)
@@ -67,6 +78,9 @@ pid_file="$log_root/simulation_$stamp.pid"
 cmd=(julia "$repo_root/scripts/run_simulation.jl")
 if [[ -n "$config" ]]; then
   cmd+=(--config "$config")
+fi
+if [[ -n "$solver" ]]; then
+  cmd+=(--solver "$solver")
 fi
 cmd+=("${run_args[@]}")
 

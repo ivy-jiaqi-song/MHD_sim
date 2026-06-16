@@ -4,7 +4,7 @@ if is_plot_entrypoint && !isempty(ARGS) && ARGS[1] in ["-h", "--help"]
     println("Usage:")
     println("  julia scripts/plot_energy_history.jl [--config configs/config.local.toml] [case_dir]")
     println()
-    println("When case_dir is omitted, the newest case under the configured output_root is used.")
+    println("When case_dir is omitted, the newest case under the configured output_root is used, including solver-labeled subdirectories.")
     exit(0)
 end
 
@@ -18,7 +18,15 @@ if is_plot_entrypoint
     config_path_arg, plot_positionals = split_config_args(ARGS)
     length(plot_positionals) <= 1 || error("Expected zero or one case directory. Run with --help for usage.")
     config_path, settings = load_config(config_path_arg)
-    Pkg.activate(mhdflows_project_path(settings))
+    plot_project = String(get_config(settings, "plot_project", ""))
+    if !isempty(plot_project)
+        Pkg.activate(resolve_repo_path(plot_project))
+    else
+        try
+            Pkg.activate(mhdflows_project_path(settings))
+        catch
+        end
+    end
 end
 
 using DelimitedFiles
@@ -34,7 +42,13 @@ import PyPlot
 
 function latest_case_root(output_root::AbstractString)
     isdir(output_root) || error("No outputs directory exists yet: $(output_root)")
-    cases = filter(isdir, readdir(output_root; join = true))
+    cases = String[]
+    for (root, dirs, files) in walkdir(output_root)
+        if isfile(joinpath(root, "analysis", "energy_history.csv")) && isfile(joinpath(root, "analysis", "case_metadata.toml"))
+            push!(cases, root)
+            empty!(dirs)
+        end
+    end
     isempty(cases) && error("No simulation cases found in $(output_root)")
     sort!(cases; by = path -> stat(path).mtime)
     return cases[end]

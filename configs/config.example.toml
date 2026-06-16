@@ -3,6 +3,10 @@
 
 # External package checkout. Relative paths are resolved from this repository.
 mhdflows_project = "MHDFlows_dev-main"
+athena_project = "athena"
+
+# Solver backend: "mhdflows" or "athena".
+solver = "mhdflows"
 
 # Simulation outputs. Relative paths are resolved from this repository.
 output_root = "outputs"
@@ -44,3 +48,39 @@ stability_rel_band = 0.12
 stability_abs_change = 0.06
 
 seed = 1234
+
+# Athena++ reference-run settings. These are ignored by the MHDFlows runner.
+# The default generated Athena input is a stock Orszag-Tang MHD sanity check,
+# not an exact physical clone of the forced MHDFlows turbulence setup. Use
+# athena_input_template for a custom Athena input when a custom problem
+# generator is available.
+athena_executable = "bin/athena"
+athena_problem = "orszag_tang"
+athena_input_template = ""
+athena_problem_id = ""
+athena_parse_only = false
+athena_dry_run = false
+
+# Leave configure/make off by default because they write build files into the
+# external Athena checkout. Enable only for a disposable checkout or build copy.
+athena_configure = false
+athena_make = false
+athena_configure_args = ["-b", "--prob=orszag_tang", "--eos=isothermal", "-hdf5"]
+athena_make_args = []
+athena_run_args = []
+
+athena_cfl_number = 0.4
+athena_integrator = "vl2"
+athena_xorder = 2
+athena_num_threads = 1
+athena_nx1 = 0 # 0 means use nx
+athena_nx2 = 0 # 0 means use nx
+athena_nx3 = 0 # 0 means use nx
+athena_meshblock_nx1 = 0 # 0 means use athena_nx1
+athena_meshblock_nx2 = 0 # 0 means use athena_nx2
+athena_meshblock_nx3 = 0 # 0 means use athena_nx3
+athena_box_size = 1.0 # stock Orszag-Tang assumes [-0.5, 0.5] in x-y
+athena_history_dt = 0.0 # 0 chooses a reasonable value from end_time/snapshot_dt
+athena_hdf5_dt = 0.0 # 0 means use snapshot_dt
+athena_output_variable = "prim"
+athena_hdf5_data_format = "float32"

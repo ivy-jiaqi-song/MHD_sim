@@ -10,6 +10,7 @@ workspace_root() = isdefined(Main, :repo_root) ? repo_root() : normpath(joinpath
 
 Base.@kwdef struct SimulationConfig
     output_root::String = joinpath(workspace_root(), "outputs")
+    solver::String = "mhdflows"
     device::String = "auto"
     apply_cpu_compatibility_shim::Bool = true
     name::String = "compressible_mhd_baseline"
@@ -117,7 +118,7 @@ function case_tag(cfg::SimulationConfig)
     return isempty(cfg.tag_suffix) ? base : "$(base)_$(cfg.tag_suffix)"
 end
 
-case_root(cfg::SimulationConfig) = joinpath(cfg.output_root, case_tag(cfg))
+case_root(cfg::SimulationConfig) = joinpath(cfg.output_root, cfg.solver, case_tag(cfg))
 analysis_root(cfg::SimulationConfig) = joinpath(case_root(cfg), "analysis")
 figure_root(cfg::SimulationConfig) = joinpath(case_root(cfg), "figures")
 snapshot_root(cfg::SimulationConfig) = joinpath(case_root(cfg), "snapshots")
@@ -531,6 +532,7 @@ end
 function write_case_metadata(path::String, cfg::SimulationConfig, device_label::String; snapshot_diagnostics = nothing)
     metadata = Dict(
         "name" => cfg.name,
+        "solver" => cfg.solver,
         "description" => cfg.description,
         "device" => device_label,
         "device_request" => cfg.device,
@@ -590,6 +592,7 @@ function config_from_sources(settings, positionals::Vector{String})
 
     cfg = SimulationConfig(;
         output_root = configured_output_root(settings),
+        solver = "mhdflows",
         device = as_string(get_config(settings, "device", defaults.device)),
         apply_cpu_compatibility_shim = as_bool(get_config(settings, "apply_cpu_compatibility_shim", defaults.apply_cpu_compatibility_shim)),
         name = as_string(get_config(settings, "name", defaults.name)),
@@ -620,6 +623,7 @@ function config_from_sources(settings, positionals::Vector{String})
     isempty(positionals) && return cfg
     return SimulationConfig(;
         output_root = cfg.output_root,
+        solver = cfg.solver,
         device = cfg.device,
         apply_cpu_compatibility_shim = cfg.apply_cpu_compatibility_shim,
         name = cfg.name,

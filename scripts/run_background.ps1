@@ -2,6 +2,7 @@
 param(
     [switch]$Help,
     [string]$Config = "",
+    [string]$Solver = "",
     [string]$LogRoot = "logs",
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RunArgs = @()
@@ -11,11 +12,12 @@ $ErrorActionPreference = "Stop"
 
 if ($Help) {
     Write-Host "Usage:"
-    Write-Host "  .\scripts\run_background.ps1 [-Config .\configs\config.local.toml] [-LogRoot logs] [-- nx end_time forcing_power viscosity resistivity tag_suffix fixed_dt snapshot_dt seed]"
+    Write-Host "  .\scripts\run_background.ps1 [-Config .\configs\config.local.toml] [-Solver mhdflows|athena] [-LogRoot logs] [-- nx end_time forcing_power viscosity resistivity tag_suffix fixed_dt snapshot_dt seed]"
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\scripts\run_background.ps1"
     Write-Host "  .\scripts\run_background.ps1 -Config .\configs\config.local.toml"
+    Write-Host "  .\scripts\run_background.ps1 -Config .\configs\config.local.toml -Solver athena"
     Write-Host "  .\scripts\run_background.ps1 -Config .\configs\config.local.toml -- 8 0.001 10 0.01 0.01 smoke 0.001 0.01 1234"
     exit 0
 }
@@ -54,6 +56,9 @@ $pidFile = Join-Path $logDir "simulation_$stamp.pid"
 $arguments = @((Join-Path "scripts" "run_simulation.jl"))
 if ($Config -ne "") {
     $arguments += @("--config", $Config)
+}
+if ($Solver -ne "") {
+    $arguments += @("--solver", $Solver)
 }
 $arguments += $RunArgs
 $argumentLine = ($arguments | ForEach-Object { Quote-Argument $_ }) -join " "
