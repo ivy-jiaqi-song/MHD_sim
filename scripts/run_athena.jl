@@ -422,10 +422,11 @@ end
 command_text(parts::Vector{String}) = join(map(part -> occursin(r"\s", part) ? "\"$(replace(part, "\"" => "\\\""))\"" : part, parts), " ")
 
 function run_logged(command_parts::Vector{String}, working_dir::String, stdout_path::String, stderr_path::String)
-    cmd = Cmd(command_parts; dir = working_dir)
     open(stdout_path, "a") do out
         open(stderr_path, "a") do err
-            run(pipeline(cmd; stdout = out, stderr = err))
+            cd(working_dir) do
+                run(pipeline(Cmd(command_parts); stdout = out, stderr = err))
+            end
         end
     end
     return nothing
