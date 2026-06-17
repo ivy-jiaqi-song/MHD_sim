@@ -827,7 +827,8 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
 
     try
         include(joinpath(@__DIR__, "plot_energy_history.jl"))
-        figure_path = Base.invokelatest(plot_energy_history, case_dir)
+        plot_fn = getfield(@__MODULE__, :plot_energy_history)
+        figure_path = Base.invokelatest(plot_fn, case_dir)
         println("Energy history figure: $(figure_path)")
     catch err
         @warn "Athena run completed, but the energy-history figure could not be generated. Run scripts/plot_energy_history.jl after fixing the plotting environment." exception = (err, catch_backtrace())
