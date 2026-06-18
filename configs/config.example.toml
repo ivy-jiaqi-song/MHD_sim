@@ -56,6 +56,10 @@ seed = 1234
 # modified.
 athena_executable = "bin/athena"
 athena_problem = "mhdflows_turbulence"
+# Athena's `dedt` normalization is not MHDFlows' forcing-power normalization.
+# A 16^3 calibration reached velocity-based M_A ~= 0.96 at 90; recalibrate at
+# production resolution rather than assuming this value transfers to 256^3.
+athena_forcing_power = 90.0
 athena_input_template = ""
 athena_problem_id = ""
 athena_parse_only = false

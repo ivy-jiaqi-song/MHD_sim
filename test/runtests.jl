@@ -73,3 +73,21 @@ end
         @test_throws ErrorException require_fresh_athena_case(temp_dir)
     end
 end
+
+@testset "Athena-specific forcing override" begin
+    mktempdir() do temp_dir
+        write(joinpath(temp_dir, "configure.py"), "")
+        settings = Dict{String, Any}(
+            "athena_project" => temp_dir,
+            "output_root" => temp_dir,
+            "forcing_power" => 8000.0,
+            "athena_forcing_power" => 90.0,
+        )
+        cfg = athena_config_from_sources(settings, String[])
+        @test cfg.forcing_power == 90.0
+
+        positional_cfg = athena_config_from_sources(settings,
+            ["16", "10", "40"])
+        @test positional_cfg.forcing_power == 40.0
+    end
+end

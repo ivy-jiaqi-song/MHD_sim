@@ -294,6 +294,7 @@ solver = "athena"
 athena_project = "athena"
 athena_executable = "bin/athena"
 athena_problem = "mhdflows_turbulence"
+athena_forcing_power = 90.0
 athena_input_template = ""
 athena_use_build_copy = true
 athena_build_copy = "build/athena_mhdflows"
@@ -319,6 +320,27 @@ parallel settings before building. A typical `256^3` layout for eight ranks is
 meshblocks, giving 64 meshblocks for load balancing. Do not blindly use every
 logical CPU: benchmark rank/thread combinations and keep total threads within
 the physical cores and memory bandwidth available on the machine.
+
+### Low-resolution forcing calibration
+
+Athena's `dedt` and MHDFlows' forcing-power parameter have different
+normalizations. `athena_forcing_power` therefore overrides `forcing_power` only
+for Athena runs. The following `16^3`, `t=10`, four-thread trials used
+`c_s=sqrt(2)`, `B0=1`, `nu=eta=0.01`, solenoidal forcing around mode 2, and
+the same seed:
+
+| Athena `dedt` | Final velocity `M_A` | Final magnetic `M_A` | Late energy |
+| ---: | ---: | ---: | --- |
+| 10 | 0.431 | 0.342 | still rising slightly |
+| 40 | 0.687 | 0.579 | stable |
+| 90 | 0.964 | 0.693 | stable |
+
+Thus `athena_forcing_power = 90` is a reasonable first trial when targeting
+velocity-based `M_A ~= 0.9`, but it is not a production calibration. The two
+estimators differ materially at `16^3`, and dissipation changes with
+resolution. At `256^3`, run a short forcing sweep, require a stable late-time
+energy window, and select the snapshot using the estimator appropriate to the
+particle analysis.
 
 Use `athena_dry_run = true` to generate the Athena input and metadata without
 launching the binary. Use `athena_parse_only = true` to call Athena with `-n`

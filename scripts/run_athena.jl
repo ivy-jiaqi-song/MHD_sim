@@ -147,7 +147,8 @@ function athena_config_from_sources(settings, positionals::Vector{String})
 
     nx = athena_as_int(get_config(settings, "nx", 128))
     end_time = athena_as_float(get_config(settings, "end_time", 60.0))
-    forcing_power = athena_as_float(get_config(settings, "forcing_power", 8.0e3))
+    forcing_power = athena_as_float(get_config(settings, "athena_forcing_power",
+        get_config(settings, "forcing_power", 8.0e3)))
     viscosity = athena_as_float(get_config(settings, "viscosity", 1.0e-2))
     resistivity = athena_as_float(get_config(settings, "resistivity", 1.0e-2))
     tag_suffix = athena_as_string(get_config(settings, "tag_suffix", ""))
