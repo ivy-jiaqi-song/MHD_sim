@@ -3,8 +3,7 @@
 This workspace is a compact launcher for a three-dimensional, isothermal,
 compressible MHD turbulence simulation. It expects a local checkout of the
 external `MHDFlows` package and writes snapshots plus an energy-history
-stability support file. This branch can also launch a local external
-Athena++ checkout as a reference/sanity-check solver.
+stability support file.
 
 The activator intentionally does not contain mode decomposition. Snapshots are
 kept as HDF5 files so a separate analysis project can consume them later.
@@ -21,24 +20,6 @@ That folder is intentionally ignored by Git because it is external code. If you
 keep the package elsewhere, set `mhdflows_project` in
 `configs/config.local.toml`, or set `MHDFLOWS_PROJECT` before running the
 scripts.
-
-For Athena++ reference runs, clone or unpack Athena++ into:
-
-```text
-athena/
-```
-
-That folder is also ignored by Git because it is external code. If you keep
-Athena elsewhere, set `athena_project` in `configs/config.local.toml`, or set
-`ATHENA_PROJECT` before running the scripts. The Athena runner copies this
-checkout into `build/athena_mhdflows/` by default, installs the repo-owned
-problem generator there, and configures/builds the copy. The original Athena
-checkout is not modified. With `athena_use_build_copy = true`, `athena_project`
-names the source checkout; the executable used for the run is
-`build/athena_mhdflows/bin/athena` after the copied tree is built.
-The runner also applies a small fp16 compiler-compatibility patch inside the
-copied tree by default; set `athena_patch_fp16 = false` if your Athena checkout
-or compiler no longer needs it.
 
 Instantiate the solver environment once:
 
@@ -63,8 +44,6 @@ Edit `configs/config.local.toml` for your machine and run settings:
 
 ```toml
 mhdflows_project = "MHDFlows_dev-main"
-athena_project = "athena"
-solver = "mhdflows" # mhdflows or athena
 output_root = "outputs"
 device = "auto" # auto, cpu, or gpu
 
@@ -87,13 +66,6 @@ Start a simulation with the defaults:
 
 ```powershell
 julia .\scripts\run_simulation.jl
-```
-
-Select the backend either in the config or on the command line:
-
-```powershell
-julia .\scripts\run_simulation.jl --solver mhdflows
-julia .\scripts\run_simulation.jl --solver athena
 ```
 
 Optional positional overrides preserve the order used by the original script:
@@ -124,7 +96,6 @@ On Linux/macOS or a remote shell:
 
 ```bash
 ./scripts/run_background.sh --config configs/config.local.toml
-./scripts/run_background.sh --config configs/config.local.toml --solver athena
 ```
 
 Both wrappers print a process ID and log file path. The `logs/` directory is
@@ -155,8 +126,8 @@ The default model is a periodic `128^3` compressible MHD box with:
 
 ## Outputs
 
-Each case is written under the configured `output_root` and labeled by solver,
-normally `outputs/<solver>/<case-tag>/`:
+Each case is written under the configured `output_root`, normally
+`outputs/<case-tag>/`:
 
 ```text
 analysis/case_metadata.toml
@@ -172,11 +143,6 @@ the sampled time range to make late-time stability easier to inspect. The CSV
 is intentionally limited to energy-support columns: `time`, `rho_mean`,
 `kinetic`, `magnetic_total`, `magnetic_fluct`, `total_resolved`, and
 `fluct_total`.
-
-MHDFlows snapshots are written as `snapshots/state_t_*.h5`. Athena HDF5 files
-are produced by Athena as `.athdf` files, then copied into the case
-`snapshots/` directory with `.h5` filenames for downstream consistency while
-the original Athena files remain in the case root.
 
 Snapshot-only compact diagnostics are written in `analysis/case_metadata.toml`
 under `[[snapshot_diagnostics]]`. Rows correspond to the HDF5 snapshots,
@@ -242,56 +208,10 @@ Or provide a specific case directory:
 julia .\scripts\plot_energy_history.jl .\outputs\<case-tag>
 ```
 
-For solver-labeled output directories, pass the solver directory too:
-
-```powershell
-julia .\scripts\plot_energy_history.jl .\outputs\mhdflows\<case-tag>
-julia .\scripts\plot_energy_history.jl .\outputs\athena\<case-tag>
-```
-
-## Athena Reference Runs
-
-The default Athena path now uses `athena_pgen/mhdflows_turbulence.cpp`, a
-repo-owned problem generator. The runner copies Athena into
-`build/athena_mhdflows/`, copies that generator into the build tree as
-`src/pgen/mhdflows_turbulence.cpp`, configures Athena with
-`--prob=mhdflows_turbulence`, and generates `analysis/athinput.generated` from
-the same TOML parameters used by MHDFlows.
-
-This makes the comparison workflow automatic, but it is still not bitwise
-identical physics. The generator maps the same box, sound speed, guide field,
-viscosity/resistivity, initial velocity amplitude, and forcing band/power into
-Athena. Athena then uses its native turbulence driver, time integrator,
-Riemann solver, reconstruction, and HDF5 writer, so solver and forcing
-implementation differences remain part of the comparison.
-
-Useful Athena config fields:
-
-```toml
-solver = "athena"
-athena_project = "athena"
-athena_executable = "bin/athena"
-athena_problem = "mhdflows_turbulence"
-athena_input_template = ""
-athena_use_build_copy = true
-athena_build_copy = "build/athena_mhdflows"
-athena_refresh_build_copy = false
-athena_pgen_source = "athena_pgen/mhdflows_turbulence.cpp"
-athena_patch_fp16 = true
-athena_configure = true
-athena_make = true
-athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
-```
-
-Use `athena_dry_run = true` to generate the Athena input and metadata without
-launching the binary. Use `athena_parse_only = true` to call Athena with `-n`
-after the build copy is available.
-
 ## Repository Notes
 
-Generated outputs and local build copies are ignored by Git because HDF5
-snapshots and Athena build trees can become large. `MHDFlows_dev-main/` and
-`athena/` are also ignored because they are external package checkouts, not
-original code from this repository. `configs/config.local.toml`, legacy
-`config.local.toml`, and `task*.md` are ignored because they are machine-local
-working notes/settings.
+Generated outputs are ignored by Git because HDF5 snapshots can become large.
+`MHDFlows_dev-main/` is also ignored because it is an external package checkout,
+not original code from this repository. `configs/config.local.toml`,
+legacy `config.local.toml`, and `task*.md` are ignored because they are
+machine-local working notes/settings.

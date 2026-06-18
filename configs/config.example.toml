@@ -3,10 +3,6 @@
 
 # External package checkout. Relative paths are resolved from this repository.
 mhdflows_project = "MHDFlows_dev-main"
-athena_project = "athena"
-
-# Solver backend: "mhdflows" or "athena".
-solver = "mhdflows"
 
 # Simulation outputs. Relative paths are resolved from this repository.
 output_root = "outputs"
@@ -48,46 +44,3 @@ stability_rel_band = 0.12
 stability_abs_change = 0.06
 
 seed = 1234
-
-# Athena++ reference-run settings. These are ignored by the MHDFlows runner.
-# The default generated Athena input uses the repo-owned
-# athena_pgen/mhdflows_turbulence.cpp problem generator. The runner copies the
-# external Athena checkout into build/ first, so the original checkout is not
-# modified.
-athena_executable = "bin/athena"
-athena_problem = "mhdflows_turbulence"
-athena_input_template = ""
-athena_problem_id = ""
-athena_parse_only = false
-athena_dry_run = false
-
-athena_use_build_copy = true
-athena_build_copy = "build/athena_mhdflows"
-athena_refresh_build_copy = false
-athena_pgen_source = "athena_pgen/mhdflows_turbulence.cpp"
-athena_patch_fp16 = true # Patch copied Athena src/athena.hpp for GCC/_Float16 builds.
-athena_configure = true
-athena_make = true
-athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
-athena_make_args = []
-athena_run_args = []
-
-athena_cfl_number = 0.4
-athena_integrator = "vl2"
-athena_xorder = 2
-athena_num_threads = 1
-athena_nx1 = 0 # 0 means use nx
-athena_nx2 = 0 # 0 means use nx
-athena_nx3 = 0 # 0 means use nx
-athena_meshblock_nx1 = 0 # 0 means use athena_nx1
-athena_meshblock_nx2 = 0 # 0 means use athena_nx2
-athena_meshblock_nx3 = 0 # 0 means use athena_nx3
-athena_box_size = 0.0 # 0 means use box_size
-athena_history_dt = 0.0 # 0 chooses a reasonable value from end_time/snapshot_dt
-athena_hdf5_dt = 0.0 # 0 means use snapshot_dt
-athena_output_variable = "prim"
-athena_hdf5_data_format = "float32"
-athena_turb_flag = 3 # 3 = continuously driven Athena turbulence
-athena_tcorr = 0.0 # 0 chooses athena_history_dt
-athena_dtdrive = 0.0 # used only for impulsive driving; 0 chooses athena_history_dt
-athena_f_shear = 1.0 # solenoidal fraction; MHDFlows initial seed is divergence-free
