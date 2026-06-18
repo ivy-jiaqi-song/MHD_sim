@@ -130,6 +130,10 @@ On Linux/macOS or a remote shell:
 Both wrappers print a process ID and log file path. The `logs/` directory is
 ignored by Git.
 
+Athena case tags are immutable after raw solver outputs exist. Set a new
+`tag_suffix` for every rerun; the launcher refuses to append to an existing
+history file or mix snapshots from separate executions.
+
 Device selection comes from `device` in `configs/config.local.toml`:
 
 ```toml
@@ -195,26 +199,35 @@ and the configured isothermal sound speed:
 M_s = u_rms / c_s
 ```
 
-For Alfvenic Mach numbers, the relevant definition is velocity divided by an
-Alfven speed, not `<B> / B`:
+For Alfvenic Mach numbers, the velocity estimator is turbulent velocity divided
+by the guide-field Alfven speed:
 
 ```text
 v_A(B_ref) = B_ref / sqrt(<rho>)
 M_A(B_ref) = u_rms / v_A(B_ref)
 ```
 
-This matches the code normalization used by the existing magnetic energy
-diagnostic, `0.5 * <|B|^2>`.
+The reference paper also uses the approximate magnetic estimator
+`delta_B_rms / B0`. Both are recorded because they agree only approximately in
+developed MHD turbulence:
+
+```text
+alfven_mach_velocity = u_rms * sqrt(<rho>) / B0
+alfven_mach_magnetic = delta_B_rms / B0
+```
 
 The snapshot metadata records the guide/mean-field Alfvenic Mach number:
 
 | Metadata field | Magnetic reference |
 | --- | --- |
-| `alfven_mach_mean` | `norm(mean(B))`, the guide/mean field |
+| `alfven_mach_mean` | Backward-compatible alias of `alfven_mach_velocity` |
+| `alfven_mach_velocity` | `u_rms sqrt(<rho>) / norm(mean(B))` |
+| `alfven_mach_magnetic` | `B_rms_fluct / norm(mean(B))` |
 
 Each row records only `file`, `time`, `rho_mean`,
 `magnetic_mean_strength`, `magnetic_rms_fluct`, `velocity_fluct_rms`,
-`alfven_mach_mean`, and `sonic_mach`. Existing `.h5` snapshots contain
+`alfven_mach_mean`, `alfven_mach_velocity`, `alfven_mach_magnetic`, and
+`sonic_mach`. Existing `.h5` snapshots contain
 `gas_density`, `i_velocity`, `j_velocity`, `k_velocity`, `i_mag_field`,
 `j_mag_field`, `k_mag_field`, and `time`, so other diagnostics can still be
 regenerated from snapshots if needed.
@@ -265,6 +278,15 @@ Athena. Athena then uses its native turbulence driver, time integrator,
 Riemann solver, reconstruction, and HDF5 writer, so solver and forcing
 implementation differences remain part of the comparison.
 
+The Maiti et al. reference simulation used `512^3`, not `256^3`, with
+solenoidal forcing and an injection scale near `0.4 L_box`. This project keeps
+`256^3` as a practical production target and the low-resolution runs as
+workflow checks. With forcing centered on mode 2, the injected scale is about
+half the box and is close to, but not an exact reproduction of, the paper's
+forcing spectrum. A run reaches the target `M_A ~= 0.9` only when the measured
+late-time diagnostics say so; forcing power is an input to tune, not `M_A`
+itself.
+
 Useful Athena config fields:
 
 ```toml
@@ -280,8 +302,23 @@ athena_pgen_source = "athena_pgen/mhdflows_turbulence.cpp"
 athena_patch_fp16 = true
 athena_configure = true
 athena_make = true
-athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
+athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft", "-omp"]
+athena_make_args = ["-j", "4"]
+athena_num_threads = 4
+athena_mpi_ranks = 1
+athena_mpi_launcher = "mpirun"
+athena_mpi_args = []
 ```
+
+`athena_num_threads` controls OpenMP threads per MPI rank. For a multi-node or
+multi-rank run, set `athena_mpi_ranks > 1`, add `"-mpi"` to
+`athena_configure_args`, and choose meshblock dimensions that create at least
+one meshblock per CPU thread across all ranks. The runner rejects inconsistent
+parallel settings before building. A typical `256^3` layout for eight ranks is
+`64^3`
+meshblocks, giving 64 meshblocks for load balancing. Do not blindly use every
+logical CPU: benchmark rank/thread combinations and keep total threads within
+the physical cores and memory bandwidth available on the machine.
 
 Use `athena_dry_run = true` to generate the Athena input and metadata without
 launching the binary. Use `athena_parse_only = true` to call Athena with `-n`

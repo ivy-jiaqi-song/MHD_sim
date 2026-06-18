@@ -68,20 +68,27 @@ athena_pgen_source = "athena_pgen/mhdflows_turbulence.cpp"
 athena_patch_fp16 = true # Patch copied Athena src/athena.hpp for GCC/_Float16 builds.
 athena_configure = true
 athena_make = true
-athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
-athena_make_args = []
+athena_configure_args = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft", "-omp"]
+athena_make_args = ["-j", "4"]
 athena_run_args = []
+
+# Hybrid CPU parallelism. OpenMP works with the default build. For MPI, set
+# athena_mpi_ranks > 1, add "-mpi" to athena_configure_args, and split the
+# domain into at least one meshblock per CPU thread across all MPI ranks.
+athena_mpi_ranks = 1
+athena_mpi_launcher = "mpirun"
+athena_mpi_args = []
 
 athena_cfl_number = 0.4
 athena_integrator = "vl2"
 athena_xorder = 2
-athena_num_threads = 1
+athena_num_threads = 4 # OpenMP threads per MPI rank; tune for the machine.
 athena_nx1 = 0 # 0 means use nx
 athena_nx2 = 0 # 0 means use nx
 athena_nx3 = 0 # 0 means use nx
-athena_meshblock_nx1 = 0 # 0 means use athena_nx1
-athena_meshblock_nx2 = 0 # 0 means use athena_nx2
-athena_meshblock_nx3 = 0 # 0 means use athena_nx3
+athena_meshblock_nx1 = 64 # 128^3 default -> 8 meshblocks for CPU load balancing
+athena_meshblock_nx2 = 64
+athena_meshblock_nx3 = 64
 athena_box_size = 0.0 # 0 means use box_size
 athena_history_dt = 0.0 # 0 chooses a reasonable value from end_time/snapshot_dt
 athena_hdf5_dt = 0.0 # 0 means use snapshot_dt

@@ -83,7 +83,9 @@ end
 
 function normalized_to_window(values::Vector{Float64}, indices::Vector{Int})
     reference = mean(values[indices])
-    reference != 0 || error("Cannot normalize an energy series with a zero late-window mean")
+    if reference == 0
+        return fill(NaN, length(values))
+    end
     return values ./ reference
 end
 

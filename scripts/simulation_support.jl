@@ -491,6 +491,8 @@ function snapshot_diagnostics_rows(history::SnapshotDiagnosticsHistory)
             "magnetic_mean_strength" => history.magnetic_mean_strength[i],
             "magnetic_rms_fluct" => history.magnetic_rms_fluct[i],
             "alfven_mach_mean" => history.alfven_mach_mean[i],
+            "alfven_mach_velocity" => history.alfven_mach_mean[i],
+            "alfven_mach_magnetic" => safe_ratio(history.magnetic_rms_fluct[i], history.magnetic_mean_strength[i]),
         ))
     end
     return rows

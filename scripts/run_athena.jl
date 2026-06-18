@@ -40,19 +40,22 @@ Base.@kwdef mutable struct AthenaConfig
     athena_patch_fp16::Bool = true
     athena_configure::Bool = true
     athena_make::Bool = true
-    athena_configure_args::Vector{String} = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
+    athena_configure_args::Vector{String} = ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft", "-omp"]
     athena_make_args::Vector{String} = String[]
     athena_run_args::Vector{String} = String[]
+    athena_mpi_ranks::Int = 1
+    athena_mpi_launcher::String = "mpirun"
+    athena_mpi_args::Vector{String} = String[]
     athena_cfl_number::Float64 = 0.4
     athena_integrator::String = "vl2"
     athena_xorder::Int = 2
-    athena_num_threads::Int = 1
+    athena_num_threads::Int = 4
     athena_nx1::Int = 128
     athena_nx2::Int = 128
     athena_nx3::Int = 128
-    athena_meshblock_nx1::Int = 128
-    athena_meshblock_nx2::Int = 128
-    athena_meshblock_nx3::Int = 128
+    athena_meshblock_nx1::Int = 64
+    athena_meshblock_nx2::Int = 64
+    athena_meshblock_nx3::Int = 64
     athena_box_size::Float64 = 0.0
     athena_history_dt::Float64 = 0.1
     athena_hdf5_dt::Float64 = 5.0
@@ -119,13 +122,13 @@ end
 function default_athena_configure_args(problem::AbstractString)
     normalized = lowercase(strip(String(problem)))
     if normalized == "mhdflows_turbulence"
-        return ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft"]
+        return ["-b", "--prob=mhdflows_turbulence", "--eos=isothermal", "-hdf5", "-fft", "-omp"]
     elseif normalized == "turb"
-        return ["-b", "--prob=turb", "--eos=isothermal", "-hdf5", "-fft"]
+        return ["-b", "--prob=turb", "--eos=isothermal", "-hdf5", "-fft", "-omp"]
     elseif normalized == "orszag_tang"
-        return ["-b", "--prob=orszag_tang", "--eos=isothermal", "-hdf5"]
+        return ["-b", "--prob=orszag_tang", "--eos=isothermal", "-hdf5", "-omp"]
     end
-    return ["-b", "--prob=$(problem)", "--eos=isothermal", "-hdf5"]
+    return ["-b", "--prob=$(problem)", "--eos=isothermal", "-hdf5", "-omp"]
 end
 
 function configure_args_problem(args::Vector{String})
@@ -237,10 +240,13 @@ function athena_config_from_sources(settings, positionals::Vector{String})
         athena_configure_args = configure_args,
         athena_make_args = athena_as_string_vector(get_config(settings, "athena_make_args", String[])),
         athena_run_args = athena_as_string_vector(get_config(settings, "athena_run_args", String[])),
+        athena_mpi_ranks = athena_as_int(get_config(settings, "athena_mpi_ranks", 1)),
+        athena_mpi_launcher = athena_as_string(get_config(settings, "athena_mpi_launcher", "mpirun")),
+        athena_mpi_args = athena_as_string_vector(get_config(settings, "athena_mpi_args", String[])),
         athena_cfl_number = athena_as_float(get_config(settings, "athena_cfl_number", 0.4)),
         athena_integrator = athena_as_string(get_config(settings, "athena_integrator", "vl2")),
         athena_xorder = athena_as_int(get_config(settings, "athena_xorder", 2)),
-        athena_num_threads = athena_as_int(get_config(settings, "athena_num_threads", 1)),
+        athena_num_threads = athena_as_int(get_config(settings, "athena_num_threads", 4)),
         athena_nx1 = athena_nx1,
         athena_nx2 = athena_nx2,
         athena_nx3 = athena_nx3,
@@ -293,6 +299,7 @@ function write_athena_generated_input(path::String, cfg::AthenaConfig)
         println(io, "<output1>")
         println(io, "file_type = hst")
         println(io, "dt        = $(cfg.athena_history_dt)")
+        println(io, "data_format = %.16e")
         println(io)
         println(io, "<output2>")
         println(io, "file_type   = hdf5")
@@ -504,8 +511,8 @@ end
 
 function run_logged(command_parts::Vector{String}, working_dir::String, stdout_path::String, stderr_path::String)
     try
-        open(stdout_path, "a") do out
-            open(stderr_path, "a") do err
+        open(stdout_path, "w") do out
+            open(stderr_path, "w") do err
                 cd(working_dir) do
                     run(pipeline(Cmd(command_parts); stdout = out, stderr = err))
                 end
@@ -545,10 +552,55 @@ end
 
 function athena_run_command(cfg::AthenaConfig, input_path::String, case_dir::String; require_executable::Bool = true)
     executable = resolve_athena_executable(cfg; require_exists = require_executable)
-    command = [executable, "-i", input_path, "-d", case_dir]
+    command = String[]
+    if cfg.athena_mpi_ranks > 1
+        push!(command, cfg.athena_mpi_launcher)
+        append!(command, cfg.athena_mpi_args)
+        append!(command, ["-n", string(cfg.athena_mpi_ranks)])
+    end
+    append!(command, [executable, "-i", input_path, "-d", case_dir])
     cfg.athena_parse_only && push!(command, "-n")
     append!(command, cfg.athena_run_args)
     return command
+end
+
+function validate_athena_parallelism(cfg::AthenaConfig)
+    cfg.athena_num_threads >= 1 || error("athena_num_threads must be at least 1")
+    cfg.athena_mpi_ranks >= 1 || error("athena_mpi_ranks must be at least 1")
+    isempty(strip(cfg.athena_mpi_launcher)) && cfg.athena_mpi_ranks > 1 &&
+        error("athena_mpi_launcher must be set when athena_mpi_ranks > 1")
+
+    if cfg.athena_num_threads > 1 && !("-omp" in cfg.athena_configure_args)
+        error("athena_num_threads > 1 requires -omp in athena_configure_args")
+    end
+    if cfg.athena_mpi_ranks > 1 && !("-mpi" in cfg.athena_configure_args)
+        error("athena_mpi_ranks > 1 requires -mpi in athena_configure_args")
+    end
+
+    mesh = (cfg.athena_nx1, cfg.athena_nx2, cfg.athena_nx3)
+    blocks = (cfg.athena_meshblock_nx1, cfg.athena_meshblock_nx2, cfg.athena_meshblock_nx3)
+    all(>(0), mesh) || error("Athena mesh dimensions must be positive")
+    all(>(0), blocks) || error("Athena meshblock dimensions must be positive")
+    all(mesh[i] % blocks[i] == 0 for i in 1:3) ||
+        error("Each Athena mesh dimension must be divisible by its meshblock dimension")
+    num_meshblocks = prod(mesh[i] ÷ blocks[i] for i in 1:3)
+    required_meshblocks = cfg.athena_mpi_ranks * cfg.athena_num_threads
+    num_meshblocks >= required_meshblocks ||
+        error("$(cfg.athena_mpi_ranks) MPI rank(s) x $(cfg.athena_num_threads) OpenMP thread(s) require at least $(required_meshblocks) meshblocks; configured $(num_meshblocks)")
+    return num_meshblocks
+end
+
+function check_athena_run_logs(stdout_path::String, stderr_path::String)
+    fatal_markers = ("FATAL ERROR", "terminate called", "Segmentation fault")
+    for path in (stdout_path, stderr_path)
+        isfile(path) || continue
+        contents = read(path, String)
+        if any(marker -> occursin(marker, contents), fatal_markers)
+            print_log_tail("Athena fatal log", path)
+            error("Athena reported a fatal runtime error in $(path)")
+        end
+    end
+    return nothing
 end
 
 function parse_athena_hst_header(lines::Vector{String})
@@ -596,7 +648,13 @@ function convert_athena_history_to_csv(hst_path::String, csv_path::String, cfg::
 
     volume = cfg.athena_box_size ^ 3
     time = athena_column(rows, columns["time"])
-    rho_mean = athena_column(rows, columns["mass"]) ./ volume
+    mass = athena_column(rows, columns["mass"])
+    rho_mean = mass ./ volume
+    momentum = (
+        athena_optional_column(rows, columns, "1-mom"),
+        athena_optional_column(rows, columns, "2-mom"),
+        athena_optional_column(rows, columns, "3-mom"),
+    )
     kinetic = (
         athena_optional_column(rows, columns, "1-KE") .+
         athena_optional_column(rows, columns, "2-KE") .+
@@ -607,9 +665,22 @@ function convert_athena_history_to_csv(hst_path::String, csv_path::String, cfg::
         athena_optional_column(rows, columns, "2-ME") .+
         athena_optional_column(rows, columns, "3-ME")
     ) ./ volume
-    magnetic_fluct = copy(magnetic_total)
+    guide_field_strength = sqrt(sum(abs2, cfg.mean_field))
+    guide_field_energy = 0.5 * guide_field_strength ^ 2
+    magnetic_fluct = max.(0.0, magnetic_total .- guide_field_energy)
     total_resolved = kinetic .+ magnetic_total
     fluct_total = kinetic .+ magnetic_fluct
+
+    mean_velocity_squared = zeros(Float64, length(time))
+    for component in momentum
+        mean_velocity_squared .+= (component ./ mass) .^ 2
+    end
+    velocity_fluct_rms = sqrt.(max.(0.0, 2 .* kinetic ./ rho_mean .- mean_velocity_squared))
+    sonic_mach = velocity_fluct_rms ./ cfg.sound_speed
+    alfven_speed_mean = guide_field_strength > 0 ? guide_field_strength ./ sqrt.(rho_mean) : fill(NaN, length(time))
+    alfven_mach_velocity = guide_field_strength > 0 ? velocity_fluct_rms ./ alfven_speed_mean : fill(NaN, length(time))
+    magnetic_rms_fluct = sqrt.(2 .* magnetic_fluct)
+    alfven_mach_magnetic = guide_field_strength > 0 ? magnetic_rms_fluct ./ guide_field_strength : fill(NaN, length(time))
 
     open(csv_path, "w") do io
         println(io, "time,rho_mean,kinetic,magnetic_total,magnetic_fluct,total_resolved,fluct_total")
@@ -626,6 +697,12 @@ function convert_athena_history_to_csv(hst_path::String, csv_path::String, cfg::
         magnetic_fluct = magnetic_fluct,
         total_resolved = total_resolved,
         fluct_total = fluct_total,
+        velocity_fluct_rms = velocity_fluct_rms,
+        sonic_mach = sonic_mach,
+        magnetic_mean_strength = fill(guide_field_strength, length(time)),
+        magnetic_rms_fluct = magnetic_rms_fluct,
+        alfven_mach_velocity = alfven_mach_velocity,
+        alfven_mach_magnetic = alfven_mach_magnetic,
     )
 end
 
@@ -662,6 +739,24 @@ function collect_athena_snapshots!(cfg::AthenaConfig, case_dir::String)
     return rows
 end
 
+function attach_athena_snapshot_diagnostics!(rows, history)
+    for row in rows
+        snapshot_time = Float64(row["time_estimate"])
+        history_index = argmin(abs.(history.time .- snapshot_time))
+        row["time"] = snapshot_time
+        row["diagnostic_time"] = history.time[history_index]
+        row["rho_mean"] = history.rho_mean[history_index]
+        row["velocity_fluct_rms"] = history.velocity_fluct_rms[history_index]
+        row["sonic_mach"] = history.sonic_mach[history_index]
+        row["magnetic_mean_strength"] = history.magnetic_mean_strength[history_index]
+        row["magnetic_rms_fluct"] = history.magnetic_rms_fluct[history_index]
+        row["alfven_mach_mean"] = history.alfven_mach_velocity[history_index]
+        row["alfven_mach_velocity"] = history.alfven_mach_velocity[history_index]
+        row["alfven_mach_magnetic"] = history.alfven_mach_magnetic[history_index]
+    end
+    return rows
+end
+
 function find_athena_hst(cfg::AthenaConfig, case_dir::String)
     expected = joinpath(case_dir, "$(cfg.athena_problem_id).hst")
     isfile(expected) && return expected
@@ -669,6 +764,19 @@ function find_athena_hst(cfg::AthenaConfig, case_dir::String)
     isempty(candidates) && return nothing
     sort!(candidates; by = path -> stat(path).mtime)
     return candidates[end]
+end
+
+function existing_athena_outputs(case_dir::String)
+    isdir(case_dir) || return String[]
+    extensions = (".hst", ".athdf", ".xdmf", ".rst")
+    return sort(filter(path -> isfile(path) && any(ext -> endswith(lowercase(path), ext), extensions), readdir(case_dir; join = true)))
+end
+
+function require_fresh_athena_case(case_dir::String)
+    existing = existing_athena_outputs(case_dir)
+    isempty(existing) && return nothing
+    preview = join(basename.(existing[1:min(end, 4)]), ", ")
+    error("Athena case already contains raw solver outputs ($(preview)). Use a new tag_suffix to avoid appending to or mixing simulation data.")
 end
 
 function write_athena_metadata(path::String, cfg::AthenaConfig; input_path::String, command::Vector{String}, history = nothing, snapshot_rows = nothing, status::String = "prepared")
@@ -697,8 +805,13 @@ function write_athena_metadata(path::String, cfg::AthenaConfig; input_path::Stri
         "athena_configure_args" => cfg.athena_configure_args,
         "athena_make_args" => cfg.athena_make_args,
         "athena_run_args" => cfg.athena_run_args,
+        "athena_mpi_ranks" => cfg.athena_mpi_ranks,
+        "athena_mpi_launcher" => cfg.athena_mpi_launcher,
+        "athena_mpi_args" => cfg.athena_mpi_args,
+        "athena_num_threads" => cfg.athena_num_threads,
+        "athena_total_cpu_threads" => cfg.athena_mpi_ranks * cfg.athena_num_threads,
         "athena_reference_note" => "mhdflows_turbulence maps the shared config into an Athena problem generator and Athena's native turbulence driver; it is intended for controlled comparison, but solver algorithms and forcing implementation are still Athena-specific.",
-        "athena_history_note" => "magnetic_fluct mirrors magnetic_total because Athena .hst output does not separate guide-field and fluctuating magnetic energy.",
+        "athena_history_note" => "magnetic_fluct subtracts the configured uniform guide-field energy from Athena's volume-averaged magnetic energy.",
         "nx" => cfg.nx,
         "athena_nx1" => cfg.athena_nx1,
         "athena_nx2" => cfg.athena_nx2,
@@ -732,6 +845,9 @@ function write_athena_metadata(path::String, cfg::AthenaConfig; input_path::Stri
         "seed" => cfg.seed,
     )
     if history !== nothing
+        metadata["final_sonic_mach"] = history.sonic_mach[end]
+        metadata["final_alfven_mach_velocity"] = history.alfven_mach_velocity[end]
+        metadata["final_alfven_mach_magnetic"] = history.alfven_mach_magnetic[end]
         stats = athena_late_window_stats(history, cfg)
         if stats !== nothing
             metadata["late_window_start_time"] = stats.t_start
@@ -754,9 +870,11 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     cfg.snapshot_dt > 0 || error("snapshot_dt must be positive")
     cfg.athena_history_dt > 0 || error("athena_history_dt must be positive")
     cfg.athena_hdf5_dt > 0 || error("athena_hdf5_dt must be positive")
+    num_meshblocks = validate_athena_parallelism(cfg)
 
     ensure_athena_case_dirs!(cfg)
     case_dir = athena_case_root(cfg)
+    require_fresh_athena_case(case_dir)
     analysis_dir = athena_analysis_root(cfg)
     preflight_log = joinpath(analysis_dir, "athena_preflight.log")
     open(preflight_log, "w") do io
@@ -767,6 +885,7 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     athena_status("Config file: $(config_path)"; log_path = preflight_log)
     athena_status("Case directory: $(case_dir)"; log_path = preflight_log)
     athena_status("Athena source project: $(cfg.athena_project)"; log_path = preflight_log)
+    athena_status("CPU parallelism: $(cfg.athena_mpi_ranks) MPI rank(s) x $(cfg.athena_num_threads) OpenMP thread(s), $(num_meshblocks) meshblock(s)"; log_path = preflight_log)
 
     prepare_athena_build_copy!(cfg; log_path = preflight_log)
 
@@ -794,6 +913,7 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     stdout_path = joinpath(analysis_dir, "athena_run.out.log")
     stderr_path = joinpath(analysis_dir, "athena_run.err.log")
     run_logged(command, case_dir, stdout_path, stderr_path)
+    check_athena_run_logs(stdout_path, stderr_path)
 
     snapshot_rows = collect_athena_snapshots!(cfg, case_dir)
     if isempty(snapshot_rows)
@@ -810,6 +930,7 @@ function run_athena_simulation(config_path::String, settings, positionals::Vecto
     end
 
     history = convert_athena_history_to_csv(hst_path, csv_path, cfg)
+    attach_athena_snapshot_diagnostics!(snapshot_rows, history)
     write_athena_metadata(metadata_path, cfg; input_path = input_path, command = command, history = history, snapshot_rows = snapshot_rows, status = "completed")
 
     println("Athena history file: $(hst_path)")
